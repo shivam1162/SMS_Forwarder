@@ -66,6 +66,9 @@ dependencies {
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
+    // Coroutines Play Services (.await() support for Firebase)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+
     // Core
     implementation("androidx.core:core-ktx:1.13.1")
 

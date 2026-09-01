@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.sp
 import com.personal.msgforwarder.data.FirebaseHelper
 import com.personal.msgforwarder.data.MessageData
 import com.personal.msgforwarder.data.PreferencesHelper
-import com.personal.msgforwarder.receiver.BootReceiver
+import com.personal.msgforwarder.service.ReceiverService
 import com.personal.msgforwarder.ui.theme.ActiveGreen
 import com.personal.msgforwarder.ui.theme.InactiveRed
 import com.personal.msgforwarder.ui.theme.SubText
@@ -39,6 +39,11 @@ fun ReceiverScreen() {
         val listener = FirebaseHelper.listenForActivation(code) { active ->
             isActive = active
             prefs.isActive = active
+            if (active) {
+                ReceiverService.start(context)
+            } else {
+                ReceiverService.stop(context)
+            }
         }
         onDispose { FirebaseHelper.removeActivationListener(code, listener) }
     }
@@ -46,7 +51,7 @@ fun ReceiverScreen() {
     // Listen for incoming messages
     DisposableEffect(code) {
         val listener = FirebaseHelper.listenForMessages(code) { message ->
-            messages = (listOf(message) + messages).take(50) // Keep latest 50
+            messages = (listOf(message) + messages.filter { it.timestamp != message.timestamp || it.body != message.body }).take(50)
         }
         onDispose { FirebaseHelper.removeMessagesListener(code, listener) }
     }
@@ -71,15 +76,15 @@ fun ReceiverScreen() {
             color = MaterialTheme.colorScheme.primary
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "Role: Receiver",
-            style = MaterialTheme.typography.titleMedium,
+            text = "Role: Receiver (My Phone) • Code: $code",
+            style = MaterialTheme.typography.titleSmall,
             color = SubText
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // Activate/Deactivate toggle button
         Button(
@@ -91,11 +96,10 @@ fun ReceiverScreen() {
                 // Write to Firebase so sender phone picks it up
                 FirebaseHelper.setActive(code, newState)
 
-                // Schedule/cancel heartbeat
                 if (newState) {
-                    BootReceiver.scheduleHeartbeat(context)
+                    ReceiverService.start(context)
                 } else {
-                    BootReceiver.cancelHeartbeat(context)
+                    ReceiverService.stop(context)
                 }
             },
             modifier = Modifier
@@ -159,13 +163,14 @@ fun ReceiverScreen() {
         if (messages.isEmpty()) {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "No messages yet. Activate and wait for SMS on mom's phone.",
+                    text = "No messages yet. Tap ACTIVATE above, then send an SMS to mom's phone.",
                     modifier = Modifier.padding(16.dp),
                     color = SubText
                 )
             }
         } else {
             LazyColumn(
+                modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(messages) { message ->
@@ -190,7 +195,7 @@ private fun MessageCard(message: MessageData) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = message.body,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyLarge
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(

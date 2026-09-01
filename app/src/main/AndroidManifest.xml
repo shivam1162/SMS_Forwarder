@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="true"
@@ -29,8 +30,7 @@
         <!-- SMS Broadcast Receiver — manifest-registered, survives app kill + reboot -->
         <receiver
             android:name=".receiver.SmsBroadcastReceiver"
-            android:exported="true"
-            android:permission="android.permission.BROADCAST_SMS">
+            android:exported="true">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
@@ -53,6 +53,12 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- Receiver Foreground Service — keeps receiver phone listening when active -->
+        <service
+            android:name=".service.ReceiverService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
 
     </application>
 
