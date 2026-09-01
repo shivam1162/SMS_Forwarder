@@ -125,8 +125,9 @@ class ReceiverService : Service() {
         pairingCode = code
         val serviceStartTime = System.currentTimeMillis() - 5000 // only show notifs for new msgs
 
-        messageListener = FirebaseHelper.listenForMessages(code) { message ->
-            Log.d(TAG, "New message received: ${message.sender}")
+        messageListener = FirebaseHelper.listenForMessages(code) { rawMessage ->
+            val message = rawMessage.decrypted(code)
+            Log.d(TAG, "New message received from: ${message.sender}")
             if (message.timestamp >= serviceStartTime) {
                 NotificationHelper.showMessageNotification(this, message.sender, message.body)
             }

@@ -78,15 +78,23 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
 
                     for ((sender, bodyBuilder) in groupedMessages) {
                         val body = bodyBuilder.toString()
-                        Log.d(TAG, "Forwarding SMS from $sender: ${body.take(30)}...")
+                        Log.d(TAG, "Encrypting and forwarding SMS from $sender...")
 
-                        val message = MessageData(
+                        // Encrypt sender + body with AES-256-GCM using the pairing code
+                        val encryptedPayload = com.personal.msgforwarder.util.CryptoHelper.encrypt(
                             sender = sender,
                             body = body,
-                            timestamp = timestamp
+                            pairingCode = code
                         )
 
-                        // Push message to Firebase
+                        val message = MessageData(
+                            sender = "[Encrypted]",
+                            body = "[Encrypted Message]",
+                            timestamp = timestamp,
+                            encrypted = encryptedPayload
+                        )
+
+                        // Push encrypted message to Firebase
                         channelRef.child("messages").push().setValue(message).await()
                     }
 

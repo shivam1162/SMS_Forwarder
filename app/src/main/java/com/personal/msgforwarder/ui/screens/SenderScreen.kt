@@ -70,8 +70,8 @@ fun SenderScreen() {
 
     // Listen for messages to show the last forwarded one
     DisposableEffect(code) {
-        val listener = FirebaseHelper.listenForMessages(code) { message ->
-            lastMessage = message
+        val listener = FirebaseHelper.listenForMessages(code) { rawMessage ->
+            lastMessage = rawMessage.decrypted(code)
         }
 
         onDispose {

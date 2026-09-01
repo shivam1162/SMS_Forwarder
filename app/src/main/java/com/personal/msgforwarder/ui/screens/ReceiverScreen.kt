@@ -50,7 +50,8 @@ fun ReceiverScreen() {
 
     // Listen for incoming messages
     DisposableEffect(code) {
-        val listener = FirebaseHelper.listenForMessages(code) { message ->
+        val listener = FirebaseHelper.listenForMessages(code) { rawMessage ->
+            val message = rawMessage.decrypted(code)
             messages = (listOf(message) + messages.filter { it.timestamp != message.timestamp || it.body != message.body }).take(50)
         }
         onDispose { FirebaseHelper.removeMessagesListener(code, listener) }
