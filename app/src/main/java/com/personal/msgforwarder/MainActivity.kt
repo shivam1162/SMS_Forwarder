@@ -44,7 +44,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AppTheme {
-                AppNavigation()
+                com.personal.msgforwarder.ui.components.UpdateCheckerWrapper {
+                    AppNavigation()
+                }
             }
         }
     }

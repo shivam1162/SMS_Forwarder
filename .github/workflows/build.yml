@@ -1,9 +1,12 @@
-name: Build APK
+name: Build & Release APK
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -25,10 +28,34 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build Debug APK
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
         run: gradle assembleDebug
 
-      - name: Upload APK
+      - name: Prepare APK Asset
+        run: |
+          mkdir -p release_assets
+          cp app/build/outputs/apk/debug/app-debug.apk release_assets/SMS_Forwarder.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "SMS Forwarder v1.0.${{ github.run_number }}"
+          body: "Automated build #${{ github.run_number }} for commit ${{ github.sha }}"
+          files: release_assets/SMS_Forwarder.apk
+          draft: false
+          prerelease: false
+
+      - name: Update Firebase App Version
+        run: |
+          curl -X PUT \
+            -H "Content-Type: application/json" \
+            -d '{"versionCode": '${{ github.run_number }}', "versionName": "1.0.'${{ github.run_number }}'", "downloadUrl": "https://github.com/shivam1162/SMS_Forwarder/releases/download/v1.0.'${{ github.run_number }}'/SMS_Forwarder.apk", "releaseNotes": "Update #${{ github.run_number }} with latest improvements"}' \
+            "https://msgforwarder-a6c00-default-rtdb.firebaseio.com/app_update.json"
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sms-forwarder-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: release_assets/SMS_Forwarder.apk

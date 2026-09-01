@@ -9,12 +9,14 @@ android {
     namespace = "com.personal.msgforwarder"
     compileSdk = 35
 
+    val runNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+
     defaultConfig {
         applicationId = "com.personal.msgforwarder"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = runNumber
+        versionName = "1.0.$runNumber"
     }
 
     buildTypes {
@@ -38,6 +40,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
