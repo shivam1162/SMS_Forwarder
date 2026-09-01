@@ -1,0 +1,16 @@
+# Android / Gradle
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+
+# Google Services (contains API keys — keep private)
+# Uncomment below if you want to exclude it from git:
+# app/google-services.json
