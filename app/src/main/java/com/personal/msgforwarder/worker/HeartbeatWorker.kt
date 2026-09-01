@@ -36,6 +36,7 @@ class HeartbeatWorker(
         Log.d(TAG, "Writing heartbeat: $timestamp")
 
         FirebaseHelper.writeHeartbeat(code, timestamp)
+        FirebaseHelper.purgeOldMessages(code)
 
         return Result.success()
     }

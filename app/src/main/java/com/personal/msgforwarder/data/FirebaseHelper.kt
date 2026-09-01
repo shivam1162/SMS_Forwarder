@@ -85,6 +85,26 @@ object FirebaseHelper {
         channelRef(code).child("messages").orderByChild("timestamp").removeEventListener(listener)
     }
 
+    /**
+     * Deletes all messages older than maxAgeMillis (default: 30 minutes) from Firebase.
+     */
+    fun purgeOldMessages(code: String, maxAgeMillis: Long = 30 * 60 * 1000L) {
+        val cutoffTimestamp = System.currentTimeMillis() - maxAgeMillis
+        val oldMessagesQuery = channelRef(code).child("messages")
+            .orderByChild("timestamp")
+            .endAt(cutoffTimestamp.toDouble())
+
+        oldMessagesQuery.addListenerForSingleValueEvent(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                for (child in snapshot.children) {
+                    child.ref.removeValue()
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {}
+        })
+    }
+
     // --- Device Tokens ---
 
     fun writeDeviceToken(code: String, role: String, token: String) {

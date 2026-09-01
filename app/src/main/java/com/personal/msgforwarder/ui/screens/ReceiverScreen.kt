@@ -50,9 +50,18 @@ fun ReceiverScreen() {
 
     // Listen for incoming messages
     DisposableEffect(code) {
+        if (code.isNotBlank()) {
+            FirebaseHelper.purgeOldMessages(code)
+        }
+
         val listener = FirebaseHelper.listenForMessages(code) { rawMessage ->
             val message = rawMessage.decrypted(code)
-            messages = (listOf(message) + messages.filter { it.timestamp != message.timestamp || it.body != message.body }).take(50)
+            val thirtyMinutesAgo = System.currentTimeMillis() - (30 * 60 * 1000L)
+            if (message.timestamp >= thirtyMinutesAgo) {
+                messages = (listOf(message) + messages.filter {
+                    it.timestamp >= thirtyMinutesAgo && (it.timestamp != message.timestamp || it.body != message.body)
+                }).take(50)
+            }
         }
         onDispose { FirebaseHelper.removeMessagesListener(code, listener) }
     }

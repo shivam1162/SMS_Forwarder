@@ -125,6 +125,9 @@ class ReceiverService : Service() {
         pairingCode = code
         val serviceStartTime = System.currentTimeMillis() - 5000 // only show notifs for new msgs
 
+        // Purge messages older than 30 minutes from Firebase
+        FirebaseHelper.purgeOldMessages(code)
+
         messageListener = FirebaseHelper.listenForMessages(code) { rawMessage ->
             val message = rawMessage.decrypted(code)
             Log.d(TAG, "New message received from: ${message.sender}")

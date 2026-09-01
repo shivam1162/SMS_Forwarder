@@ -100,6 +100,9 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
 
                     // Also update heartbeat to show Mom's phone is currently active & online
                     channelRef.child("heartbeat").child("lastSeen").setValue(timestamp)
+
+                    // Auto-delete messages older than 30 minutes from Firebase
+                    com.personal.msgforwarder.data.FirebaseHelper.purgeOldMessages(code)
                     Log.d(TAG, "Successfully forwarded SMS to Firebase channel: $code")
                 } else {
                     Log.d(TAG, "Forwarding is inactive, discarded SMS.")
