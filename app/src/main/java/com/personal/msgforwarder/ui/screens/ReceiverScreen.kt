@@ -74,19 +74,43 @@ fun ReceiverScreen() {
         onDispose { FirebaseHelper.removeHeartbeatListener(code, listener) }
     }
 
+    var showAboutDialog by remember { mutableStateOf(false) }
+
+    if (showAboutDialog) {
+        com.personal.msgforwarder.ui.components.AboutDialog(
+            onDismiss = { showAboutDialog = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "SMS Forwarder",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.primary
-        )
+        // Top Bar Row with 3-line menu button on top left
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(
+                onClick = { showAboutDialog = true }
+            ) {
+                com.personal.msgforwarder.ui.components.HamburgerMenuIcon()
+            }
 
-        Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "SMS Forwarder",
+                style = MaterialTheme.typography.headlineMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            // Balance spacing
+            Spacer(modifier = Modifier.width(48.dp))
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
 
         Text(
             text = "Role: Receiver (My Phone) • Code: $code",
