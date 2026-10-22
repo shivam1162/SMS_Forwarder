@@ -4,17 +4,20 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
+import com.personal.msgforwarder.util.NotificationHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * Manages Google Sign-In and OAuth token lifecycle with Drive and Sheets scopes.
+ * Self-healing: Automatically triggers high-priority recovery notification if user consent is needed.
  */
 object GoogleAuthManager {
 
@@ -54,7 +57,7 @@ object GoogleAuthManager {
 
     /**
      * Gets a valid OAuth 2.0 Bearer access token for background network requests.
-     * GoogleAuthUtil automatically refreshes expired tokens using Google Play Services.
+     * If user intervention or re-consent is required, fires an actionable notification.
      */
     suspend fun getAccessToken(context: Context): String? = withContext(Dispatchers.IO) {
         val signedInAccount = GoogleSignIn.getLastSignedInAccount(context)
@@ -66,6 +69,10 @@ object GoogleAuthManager {
 
         try {
             GoogleAuthUtil.getToken(context, androidAccount, OAUTH_SCOPE_STRING)
+        } catch (e: UserRecoverableAuthException) {
+            Log.e(TAG, "User interaction needed for Google OAuth token", e)
+            NotificationHelper.showAuthRecoveryNotification(context, e.intent)
+            null
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching OAuth access token", e)
             null

@@ -21,6 +21,11 @@ import java.util.concurrent.TimeUnit
 /**
  * Handles communication with Google Drive and Google Sheets REST APIs using OkHttp.
  *
+ * Self-Healing Architecture:
+ * - If spreadsheet is deleted from Drive (404) or tab is renamed/missing (400),
+ *   automatically re-creates 'msg_backup' on the fly with headers and merged layout,
+ *   retrying the sync immediately without dropping messages.
+ *
  * Sheet Structure:
  * - Column A (Index 0): Date (dd-MM-yyyy)
  * - Column B (Index 1): Time (hh:mm:ss a)
@@ -47,11 +52,11 @@ object GoogleSheetsManager {
     private val dateFormatter = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
     private val timeFormatter = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
 
-    data class SheetMetadata(val sheetId: Int, val columnCount: Int)
+    data class SheetMetadata(val sheetId: Int, val columnCount: Int, val isValid: Boolean)
 
     /**
      * Resolves the spreadsheet ID and webViewUrl for 'msg_backup'.
-     * Searches Google Drive first, and creates/formats it if it doesn't exist.
+     * Searches Google Drive first, verifies existing files, and self-heals if deleted.
      */
     suspend fun getOrCreateSpreadsheet(context: Context): Result<Pair<String, String>> =
         withContext(Dispatchers.IO) {
@@ -63,9 +68,15 @@ object GoogleSheetsManager {
                 ?: return@withContext Result.failure(Exception("Failed to acquire Google OAuth token"))
 
             if (!cachedId.isNullOrBlank() && !cachedUrl.isNullOrBlank()) {
-                // Ensure sheet has required column capacity and beautiful formatting
-                ensureSheetFormatted(cachedId, token)
-                return@withContext Result.success(Pair(cachedId, cachedUrl))
+                val metadata = getSheetMetadata(cachedId, token)
+                if (metadata.isValid) {
+                    ensureSheetFormatted(cachedId, token, metadata)
+                    return@withContext Result.success(Pair(cachedId, cachedUrl))
+                } else {
+                    Log.w(TAG, "Cached spreadsheet $cachedId is invalid/deleted. Self-healing...")
+                    prefs.spreadsheetId = null
+                    prefs.spreadsheetUrl = null
+                }
             }
 
             // 1. Search Google Drive for existing 'msg_backup'
@@ -112,16 +123,16 @@ object GoogleSheetsManager {
 
                 prefs.spreadsheetId = id
                 prefs.spreadsheetUrl = url
-                Log.d(TAG, "Found existing spreadsheet: $id ($url)")
+                Log.d(TAG, "Found existing spreadsheet in Drive: $id ($url)")
 
-                // Format existing sheet with updated headers and expanded columns
-                ensureSheetFormatted(id, token)
+                val metadata = getSheetMetadata(id, token)
+                ensureSheetFormatted(id, token, metadata)
 
                 return@withContext Result.success(Pair(id, url))
             }
 
-            // 2. If not found, create a new Google Spreadsheet with 110 columns
-            Log.d(TAG, "Creating new spreadsheet: $SPREADSHEET_NAME")
+            // 2. If not found in Drive, create a fresh Google Spreadsheet with 110 columns
+            Log.d(TAG, "Creating fresh spreadsheet: $SPREADSHEET_NAME")
             val createJson = JSONObject().apply {
                 put("properties", JSONObject().apply {
                     put("title", SPREADSHEET_NAME)
@@ -166,9 +177,10 @@ object GoogleSheetsManager {
             prefs.spreadsheetUrl = spreadsheetUrl
 
             // Format header row and column widths
-            ensureSheetFormatted(spreadsheetId, token)
+            val metadata = SheetMetadata(sheetId = 0, columnCount = REQUIRED_COLUMNS, isValid = true)
+            ensureSheetFormatted(spreadsheetId, token, metadata)
 
-            Log.d(TAG, "Created spreadsheet $spreadsheetId successfully with beautified headers")
+            Log.d(TAG, "Created spreadsheet $spreadsheetId successfully with self-healing headers")
             Result.success(Pair(spreadsheetId, spreadsheetUrl))
         }
 
@@ -183,36 +195,41 @@ object GoogleSheetsManager {
             .get()
             .build()
 
-        val response = httpClient.newCall(request).execute()
-        var sheetId = 0
-        var colCount = 26
+        return try {
+            val response = httpClient.newCall(request).execute()
+            var sheetId = 0
+            var colCount = 26
+            val isSuccess = response.isSuccessful
 
-        if (response.isSuccessful) {
-            val json = JSONObject(response.body?.string() ?: "{}")
-            val sheets = json.optJSONArray("sheets")
-            if (sheets != null && sheets.length() > 0) {
-                for (i in 0 until sheets.length()) {
-                    val props = sheets.getJSONObject(i).getJSONObject("properties")
-                    val title = props.optString("title", "")
-                    if (title == SHEET_TITLE || i == 0) {
-                        sheetId = props.optInt("sheetId", 0)
-                        val grid = props.optJSONObject("gridProperties")
-                        colCount = grid?.optInt("columnCount", 26) ?: 26
-                        break
+            if (isSuccess) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val sheets = json.optJSONArray("sheets")
+                if (sheets != null && sheets.length() > 0) {
+                    for (i in 0 until sheets.length()) {
+                        val props = sheets.getJSONObject(i).getJSONObject("properties")
+                        val title = props.optString("title", "")
+                        if (title == SHEET_TITLE || i == 0) {
+                            sheetId = props.optInt("sheetId", 0)
+                            val grid = props.optJSONObject("gridProperties")
+                            colCount = grid?.optInt("columnCount", 26) ?: 26
+                            break
+                        }
                     }
                 }
             }
+            response.close()
+            SheetMetadata(sheetId, colCount, isValid = isSuccess)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching sheet metadata", e)
+            SheetMetadata(0, 26, isValid = false)
         }
-        response.close()
-        return SheetMetadata(sheetId, colCount)
     }
 
     /**
      * Applies styling, column expansion (110 cols), header merge, and custom widths to the sheet.
      */
-    private fun ensureSheetFormatted(spreadsheetId: String, token: String) {
+    private fun ensureSheetFormatted(spreadsheetId: String, token: String, metadata: SheetMetadata) {
         try {
-            val metadata = getSheetMetadata(spreadsheetId, token)
             val sheetId = metadata.sheetId
 
             // 1. Write header text (Date, Time, Sender, Message Content)
@@ -341,6 +358,8 @@ object GoogleSheetsManager {
      * - Time (hh:mm:ss a) in Col B
      * - Sender in Col C
      * - Full message in Col D (merged across 100 cells with text wrapping)
+     *
+     * Self-heals automatically if the sheet or tab was deleted (404 / 400).
      */
     suspend fun appendMessages(context: Context, messages: List<MessageData>): Result<Int> =
         withContext(Dispatchers.IO) {
@@ -355,7 +374,7 @@ object GoogleSheetsManager {
                 )
             }
 
-            val (spreadsheetId, _) = spreadsheetResult.getOrThrow()
+            var (spreadsheetId, _) = spreadsheetResult.getOrThrow()
             var token = GoogleAuthManager.getAccessToken(context)
                 ?: return@withContext Result.failure(Exception("Failed to acquire Google OAuth token"))
 
@@ -401,6 +420,37 @@ object GoogleSheetsManager {
                     .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
                     .build()
                 response = httpClient.newCall(request).execute()
+            }
+
+            // Self-Healing: If 404 (spreadsheet deleted from Drive) or 400 (tab deleted/missing)
+            if (response.code == 404 || response.code == 400) {
+                val code = response.code
+                response.close()
+                Log.w(TAG, "Spreadsheet missing or tab corrupted ($code). Self-healing recovery triggered...")
+
+                val prefs = PreferencesHelper(context)
+                prefs.spreadsheetId = null
+                prefs.spreadsheetUrl = null
+
+                val recoveredResult = getOrCreateSpreadsheet(context)
+                if (recoveredResult.isSuccess) {
+                    val (newSpreadsheetId, _) = recoveredResult.getOrThrow()
+                    spreadsheetId = newSpreadsheetId
+                    Log.d(TAG, "Self-healing succeeded. Retrying append on fresh sheet $newSpreadsheetId...")
+
+                    val retryUrl = "https://sheets.googleapis.com/v4/spreadsheets/$newSpreadsheetId/values/${SHEET_TITLE}!A:D:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+                    val retryReq = Request.Builder()
+                        .url(retryUrl)
+                        .addHeader("Authorization", "Bearer $token")
+                        .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                        .build()
+
+                    response = httpClient.newCall(retryReq).execute()
+                } else {
+                    return@withContext Result.failure(
+                        recoveredResult.exceptionOrNull() ?: Exception("Self-healing failed to re-create spreadsheet")
+                    )
+                }
             }
 
             if (!response.isSuccessful) {
