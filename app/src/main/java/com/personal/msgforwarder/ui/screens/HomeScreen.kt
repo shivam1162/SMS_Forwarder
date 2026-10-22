@@ -464,7 +464,7 @@ fun HomeScreen() {
 
 @Composable
 private fun MessageCard(message: MessageData) {
-    val dateFormatter = remember { SimpleDateFormat("MMM d, yyyy • h:mm a", Locale.getDefault()) }
+    val dateFormatter = remember { SimpleDateFormat("dd-MM-yyyy • hh:mm:ss a", Locale.getDefault()) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),

@@ -20,12 +20,21 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Handles communication with Google Drive and Google Sheets REST APIs using OkHttp.
+ *
+ * Sheet Structure:
+ * - Column A (Index 0): Date (dd-MM-yyyy)
+ * - Column B (Index 1): Time (hh:mm:ss a)
+ * - Column C (Index 2): Sender
+ * - Columns D to CW (Index 3 to 103): 100 merged cells for Full Message Content
  */
 object GoogleSheetsManager {
 
     private const val TAG = "GoogleSheetsManager"
     private const val SPREADSHEET_NAME = "msg_backup"
     private const val SHEET_TITLE = "Messages"
+    private const val REQUIRED_COLUMNS = 110
+    private const val MSG_START_COL = 3
+    private const val MSG_END_COL = 103 // 100 cells (columns 3 through 102)
 
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -35,11 +44,14 @@ object GoogleSheetsManager {
         .writeTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    private val dateFormatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    private val dateFormatter = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
+    private val timeFormatter = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
+
+    data class SheetMetadata(val sheetId: Int, val columnCount: Int)
 
     /**
      * Resolves the spreadsheet ID and webViewUrl for 'msg_backup'.
-     * Searches Google Drive first, and creates it with headers if it doesn't exist.
+     * Searches Google Drive first, and creates/formats it if it doesn't exist.
      */
     suspend fun getOrCreateSpreadsheet(context: Context): Result<Pair<String, String>> =
         withContext(Dispatchers.IO) {
@@ -47,12 +59,14 @@ object GoogleSheetsManager {
             val cachedId = prefs.spreadsheetId
             val cachedUrl = prefs.spreadsheetUrl
 
-            if (!cachedId.isNullOrBlank() && !cachedUrl.isNullOrBlank()) {
-                return@withContext Result.success(Pair(cachedId, cachedUrl))
-            }
-
             var token = GoogleAuthManager.getAccessToken(context)
                 ?: return@withContext Result.failure(Exception("Failed to acquire Google OAuth token"))
+
+            if (!cachedId.isNullOrBlank() && !cachedUrl.isNullOrBlank()) {
+                // Ensure sheet has required column capacity and beautiful formatting
+                ensureSheetFormatted(cachedId, token)
+                return@withContext Result.success(Pair(cachedId, cachedUrl))
+            }
 
             // 1. Search Google Drive for existing 'msg_backup'
             val searchQuery = "name = '$SPREADSHEET_NAME' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
@@ -99,10 +113,14 @@ object GoogleSheetsManager {
                 prefs.spreadsheetId = id
                 prefs.spreadsheetUrl = url
                 Log.d(TAG, "Found existing spreadsheet: $id ($url)")
+
+                // Format existing sheet with updated headers and expanded columns
+                ensureSheetFormatted(id, token)
+
                 return@withContext Result.success(Pair(id, url))
             }
 
-            // 2. If not found, create a new Google Spreadsheet
+            // 2. If not found, create a new Google Spreadsheet with 110 columns
             Log.d(TAG, "Creating new spreadsheet: $SPREADSHEET_NAME")
             val createJson = JSONObject().apply {
                 put("properties", JSONObject().apply {
@@ -111,9 +129,11 @@ object GoogleSheetsManager {
                 put("sheets", JSONArray().apply {
                     put(JSONObject().apply {
                         put("properties", JSONObject().apply {
+                            put("sheetId", 0)
                             put("title", SHEET_TITLE)
                             put("gridProperties", JSONObject().apply {
                                 put("frozenRowCount", 1)
+                                put("columnCount", REQUIRED_COLUMNS)
                             })
                         })
                     })
@@ -142,35 +162,185 @@ object GoogleSheetsManager {
                 "https://docs.google.com/spreadsheets/d/$spreadsheetId/edit"
             )
 
-            // 3. Write header row to the newly created spreadsheet
-            val headerJson = JSONObject().apply {
+            prefs.spreadsheetId = spreadsheetId
+            prefs.spreadsheetUrl = spreadsheetUrl
+
+            // Format header row and column widths
+            ensureSheetFormatted(spreadsheetId, token)
+
+            Log.d(TAG, "Created spreadsheet $spreadsheetId successfully with beautified headers")
+            Result.success(Pair(spreadsheetId, spreadsheetUrl))
+        }
+
+    /**
+     * Inspects spreadsheet to get sheetId and ensure grid has at least 110 columns.
+     */
+    private fun getSheetMetadata(spreadsheetId: String, token: String): SheetMetadata {
+        val url = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId?fields=sheets(properties(sheetId,title,gridProperties))"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .get()
+            .build()
+
+        val response = httpClient.newCall(request).execute()
+        var sheetId = 0
+        var colCount = 26
+
+        if (response.isSuccessful) {
+            val json = JSONObject(response.body?.string() ?: "{}")
+            val sheets = json.optJSONArray("sheets")
+            if (sheets != null && sheets.length() > 0) {
+                for (i in 0 until sheets.length()) {
+                    val props = sheets.getJSONObject(i).getJSONObject("properties")
+                    val title = props.optString("title", "")
+                    if (title == SHEET_TITLE || i == 0) {
+                        sheetId = props.optInt("sheetId", 0)
+                        val grid = props.optJSONObject("gridProperties")
+                        colCount = grid?.optInt("columnCount", 26) ?: 26
+                        break
+                    }
+                }
+            }
+        }
+        response.close()
+        return SheetMetadata(sheetId, colCount)
+    }
+
+    /**
+     * Applies styling, column expansion (110 cols), header merge, and custom widths to the sheet.
+     */
+    private fun ensureSheetFormatted(spreadsheetId: String, token: String) {
+        try {
+            val metadata = getSheetMetadata(spreadsheetId, token)
+            val sheetId = metadata.sheetId
+
+            // 1. Write header text (Date, Time, Sender, Message Content)
+            val headerValues = JSONObject().apply {
                 put("values", JSONArray().apply {
                     put(JSONArray().apply {
-                        put("Timestamp (Epoch)")
-                        put("Date & Time")
+                        put("Date")
+                        put("Time")
                         put("Sender")
-                        put("Full Message")
+                        put("Message Content")
                     })
                 })
             }
 
             val headerUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${SHEET_TITLE}!A1:D1?valueInputOption=USER_ENTERED"
-            val headerRequest = Request.Builder()
+            val headerReq = Request.Builder()
                 .url(headerUrl)
                 .addHeader("Authorization", "Bearer $token")
-                .put(headerJson.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .put(headerValues.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            httpClient.newCall(headerReq).execute().close()
+
+            // 2. Batch styling: expand columns, merge D1:CW1, style header row, set widths
+            val requests = JSONArray()
+
+            // Expand columns if less than REQUIRED_COLUMNS
+            if (metadata.columnCount < REQUIRED_COLUMNS) {
+                requests.put(JSONObject().apply {
+                    put("updateSheetProperties", JSONObject().apply {
+                        put("properties", JSONObject().apply {
+                            put("sheetId", sheetId)
+                            put("gridProperties", JSONObject().apply {
+                                put("columnCount", REQUIRED_COLUMNS)
+                                put("frozenRowCount", 1)
+                            })
+                        })
+                        put("fields", "gridProperties.columnCount,gridProperties.frozenRowCount")
+                    })
+                })
+            }
+
+            // Merge D1:CW1 (100 cells) for the header
+            requests.put(JSONObject().apply {
+                put("mergeCells", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetId)
+                        put("startRowIndex", 0)
+                        put("endRowIndex", 1)
+                        put("startColumnIndex", MSG_START_COL)
+                        put("endColumnIndex", MSG_END_COL)
+                    })
+                    put("mergeType", "MERGE_ALL")
+                })
+            })
+
+            // Style Header Row (Dark Slate / Emerald green, White bold text, vertically centered)
+            requests.put(JSONObject().apply {
+                put("repeatCell", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetId)
+                        put("startRowIndex", 0)
+                        put("endRowIndex", 1)
+                        put("startColumnIndex", 0)
+                        put("endColumnIndex", MSG_END_COL)
+                    })
+                    put("cell", JSONObject().apply {
+                        put("userEnteredFormat", JSONObject().apply {
+                            put("backgroundColor", JSONObject().apply {
+                                put("red", 0.082f)
+                                put("green", 0.447f)
+                                put("blue", 0.259f) // Professional Forest Green
+                            })
+                            put("textFormat", JSONObject().apply {
+                                put("bold", true)
+                                put("fontSize", 11)
+                                put("foregroundColor", JSONObject().apply {
+                                    put("red", 1.0f)
+                                    put("green", 1.0f)
+                                    put("blue", 1.0f)
+                                })
+                            })
+                            put("horizontalAlignment", "CENTER")
+                            put("verticalAlignment", "MIDDLE")
+                        })
+                    })
+                    put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
+                })
+            })
+
+            // Set column widths: Col A (Date)=110px, Col B (Time)=120px, Col C (Sender)=140px
+            val colWidths = listOf(Pair(0, 110), Pair(1, 120), Pair(2, 140))
+            for ((colIndex, width) in colWidths) {
+                requests.put(JSONObject().apply {
+                    put("updateDimensionProperties", JSONObject().apply {
+                        put("range", JSONObject().apply {
+                            put("sheetId", sheetId)
+                            put("dimension", "COLUMNS")
+                            put("startIndex", colIndex)
+                            put("endIndex", colIndex + 1)
+                        })
+                        put("properties", JSONObject().apply {
+                            put("pixelSize", width)
+                        })
+                        put("fields", "pixelSize")
+                    })
+                })
+            }
+
+            val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
+            val batchReq = Request.Builder()
+                .url(batchUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .post(JSONObject().put("requests", requests).toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
-            httpClient.newCall(headerRequest).execute().close()
-
-            prefs.spreadsheetId = spreadsheetId
-            prefs.spreadsheetUrl = spreadsheetUrl
-            Log.d(TAG, "Created spreadsheet $spreadsheetId successfully with headers")
-            Result.success(Pair(spreadsheetId, spreadsheetUrl))
+            httpClient.newCall(batchReq).execute().close()
+            Log.d(TAG, "Header and sheet styling applied successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying sheet formatting", e)
         }
+    }
 
     /**
-     * Appends a list of messages to the 'msg_backup' spreadsheet in a single batch request.
+     * Appends a list of messages to the 'msg_backup' spreadsheet:
+     * - Date (dd-MM-yyyy) in Col A
+     * - Time (hh:mm:ss a) in Col B
+     * - Sender in Col C
+     * - Full message in Col D (merged across 100 cells with text wrapping)
      */
     suspend fun appendMessages(context: Context, messages: List<MessageData>): Result<Int> =
         withContext(Dispatchers.IO) {
@@ -180,7 +350,9 @@ object GoogleSheetsManager {
 
             val spreadsheetResult = getOrCreateSpreadsheet(context)
             if (spreadsheetResult.isFailure) {
-                return@withContext Result.failure(spreadsheetResult.exceptionOrNull() ?: Exception("Unknown error getting spreadsheet"))
+                return@withContext Result.failure(
+                    spreadsheetResult.exceptionOrNull() ?: Exception("Unknown error getting spreadsheet")
+                )
             }
 
             val (spreadsheetId, _) = spreadsheetResult.getOrThrow()
@@ -190,9 +362,10 @@ object GoogleSheetsManager {
             val rowsArray = JSONArray()
             for (msg in messages) {
                 val dateStr = dateFormatter.format(Date(msg.timestamp))
+                val timeStr = timeFormatter.format(Date(msg.timestamp))
                 val row = JSONArray().apply {
-                    put(msg.timestamp.toString())
                     put(dateStr)
+                    put(timeStr)
                     put(msg.sender)
                     put(msg.body)
                 }
@@ -236,9 +409,104 @@ object GoogleSheetsManager {
                 return@withContext Result.failure(Exception("Failed to append to Google Sheet: ${response.code} - $errorBody"))
             }
 
+            val appendRespJson = JSONObject(response.body?.string() ?: "{}")
             response.close()
+
+            // Extract row range from 'updatedRange' (e.g. "Messages!A2:D2" or "'Messages'!A5:D8")
+            val updatesObj = appendRespJson.optJSONObject("updates")
+            val updatedRange = updatesObj?.optString("updatedRange", "") ?: ""
+
+            applyRowFormatting(spreadsheetId, token, updatedRange)
+
             PreferencesHelper(context).lastSyncTimestamp = System.currentTimeMillis()
             Log.d(TAG, "Successfully appended ${messages.size} message(s) to Google Sheet")
             Result.success(messages.size)
         }
+
+    /**
+     * Merges 100 cells horizontally (columns D to CW) for each appended row,
+     * enables text wrapping, aligns date/time to center, and aligns message to top.
+     */
+    private fun applyRowFormatting(spreadsheetId: String, token: String, updatedRange: String) {
+        if (updatedRange.isBlank()) return
+
+        try {
+            // Match row numbers in range, e.g. "!A2:D5" -> start: 2, end: 5
+            val match = Regex("""!A(\d+):D(\d+)""").find(updatedRange) ?: return
+            val startRow = match.groupValues[1].toInt() - 1 // 0-indexed inclusive
+            val endRow = match.groupValues[2].toInt()       // 0-indexed exclusive
+
+            val metadata = getSheetMetadata(spreadsheetId, token)
+            val sheetId = metadata.sheetId
+
+            val requests = JSONArray()
+
+            // 1. Merge columns D through CW (100 cells) for each row
+            requests.put(JSONObject().apply {
+                put("mergeCells", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetId)
+                        put("startRowIndex", startRow)
+                        put("endRowIndex", endRow)
+                        put("startColumnIndex", MSG_START_COL)
+                        put("endColumnIndex", MSG_END_COL)
+                    })
+                    put("mergeType", "MERGE_ROWS")
+                })
+            })
+
+            // 2. Format Date, Time, Sender columns: center horizontal, top vertical
+            requests.put(JSONObject().apply {
+                put("repeatCell", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetId)
+                        put("startRowIndex", startRow)
+                        put("endRowIndex", endRow)
+                        put("startColumnIndex", 0)
+                        put("endColumnIndex", 3)
+                    })
+                    put("cell", JSONObject().apply {
+                        put("userEnteredFormat", JSONObject().apply {
+                            put("horizontalAlignment", "CENTER")
+                            put("verticalAlignment", "TOP")
+                        })
+                    })
+                    put("fields", "userEnteredFormat(horizontalAlignment,verticalAlignment)")
+                })
+            })
+
+            // 3. Format Message cell: wrap text, left horizontal, top vertical
+            requests.put(JSONObject().apply {
+                put("repeatCell", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetId)
+                        put("startRowIndex", startRow)
+                        put("endRowIndex", endRow)
+                        put("startColumnIndex", MSG_START_COL)
+                        put("endColumnIndex", MSG_END_COL)
+                    })
+                    put("cell", JSONObject().apply {
+                        put("userEnteredFormat", JSONObject().apply {
+                            put("wrapStrategy", "WRAP")
+                            put("horizontalAlignment", "LEFT")
+                            put("verticalAlignment", "TOP")
+                        })
+                    })
+                    put("fields", "userEnteredFormat(wrapStrategy,horizontalAlignment,verticalAlignment)")
+                })
+            })
+
+            val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
+            val batchReq = Request.Builder()
+                .url(batchUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .post(JSONObject().put("requests", requests).toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            httpClient.newCall(batchReq).execute().close()
+            Log.d(TAG, "Applied row merge and formatting for rows $startRow to $endRow")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying row merge formatting", e)
+        }
+    }
 }
