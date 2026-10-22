@@ -28,8 +28,8 @@ import com.personal.msgforwarder.data.google.GoogleSheetsManager
 import com.personal.msgforwarder.ui.components.AboutDialog
 import com.personal.msgforwarder.ui.components.HamburgerMenuIcon
 import com.personal.msgforwarder.ui.theme.ActiveGreen
-import com.personal.msgforwarder.ui.theme.DarkText
-import com.personal.msgforwarder.ui.theme.SubText
+import com.personal.msgforwarder.ui.theme.TextGray
+import com.personal.msgforwarder.ui.theme.TextWhite
 import com.personal.msgforwarder.ui.theme.WarningOrange
 import com.personal.msgforwarder.worker.BackupSyncWorker
 import kotlinx.coroutines.launch
@@ -104,6 +104,7 @@ fun HomeScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -127,7 +128,7 @@ fun HomeScreen() {
                 Text(
                     text = "msg_backup (Google Drive)",
                     style = MaterialTheme.typography.bodySmall,
-                    color = SubText
+                    color = TextGray
                 )
             }
 
@@ -141,7 +142,7 @@ fun HomeScreen() {
         if (!hasSmsPermission) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = WarningOrange.copy(alpha = 0.12f)),
+                colors = CardDefaults.cardColors(containerColor = WarningOrange.copy(alpha = 0.15f)),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Row(
@@ -162,7 +163,7 @@ fun HomeScreen() {
                         Text(
                             text = "Required to read incoming messages and append rows to your Google Sheet.",
                             fontSize = 12.sp,
-                            color = DarkText
+                            color = TextWhite
                         )
                     }
                     Button(
@@ -177,7 +178,7 @@ fun HomeScreen() {
                         colors = ButtonDefaults.buttonColors(containerColor = WarningOrange),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Text("Grant", fontSize = 12.sp)
+                        Text("Grant", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             }
@@ -188,7 +189,7 @@ fun HomeScreen() {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 if (!isSignedIn) {
@@ -204,14 +205,14 @@ fun HomeScreen() {
                             text = "Not Connected to Google",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 15.sp,
-                            color = DarkText
+                            color = TextWhite
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Sign in to allow the app to automatically create and update 'msg_backup' in your Google Drive.",
                         fontSize = 13.sp,
-                        color = SubText
+                        color = TextGray
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
@@ -223,7 +224,11 @@ fun HomeScreen() {
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Sign in with Google", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Sign in with Google",
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
                     }
                 } else {
                     Row(
@@ -261,7 +266,7 @@ fun HomeScreen() {
                             },
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("Sign Out", fontSize = 12.sp, color = SubText)
+                            Text("Sign Out", fontSize = 12.sp, color = TextGray)
                         }
                     }
 
@@ -270,7 +275,7 @@ fun HomeScreen() {
                         text = accountEmail ?: "",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
-                        color = DarkText
+                        color = TextWhite
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -283,12 +288,14 @@ fun HomeScreen() {
                             context.startActivity(intent)
                         },
                         modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(
                             text = "📊 Open 'msg_backup' in Google Sheets ↗",
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
 
@@ -303,7 +310,7 @@ fun HomeScreen() {
                         Text(
                             text = if (isBackupEnabled) "Automatic backup is Active" else "Automatic backup is Paused",
                             fontSize = 13.sp,
-                            color = if (isBackupEnabled) DarkText else SubText
+                            color = if (isBackupEnabled) TextWhite else TextGray
                         )
                         Switch(
                             checked = isBackupEnabled,
@@ -323,7 +330,7 @@ fun HomeScreen() {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(
                 modifier = Modifier
@@ -337,14 +344,14 @@ fun HomeScreen() {
                         text = "Direct Sync & Privacy",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp,
-                        color = DarkText
+                        color = TextWhite
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Incoming SMS messages are appended directly to your private Google Sheet and are not stored on this device.",
                     fontSize = 12.sp,
-                    color = SubText,
+                    color = TextGray,
                     lineHeight = 18.sp
                 )
             }

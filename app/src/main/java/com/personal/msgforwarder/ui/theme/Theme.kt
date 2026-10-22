@@ -1,24 +1,30 @@
 package com.personal.msgforwarder.ui.theme
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
-private val LightColorScheme = lightColorScheme(
-    primary = Green500,
-    onPrimary = White,
-    primaryContainer = Green700,
-    background = White,
-    surface = White,
-    onBackground = DarkText,
-    onSurface = DarkText,
-    error = InactiveRed
+private val DarkColorScheme = darkColorScheme(
+    primary = GreenLight,
+    onPrimary = DarkBackground,
+    primaryContainer = GreenDark,
+    onPrimaryContainer = TextWhite,
+    secondary = GreenPrimary,
+    onSecondary = DarkBackground,
+    background = DarkBackground,
+    onBackground = TextWhite,
+    surface = DarkSurface,
+    onSurface = TextWhite,
+    surfaceVariant = DarkSurfaceVariant,
+    onSurfaceVariant = TextGray,
+    error = InactiveRed,
+    onError = DarkBackground
 )
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = LightColorScheme,
+        colorScheme = DarkColorScheme,
         content = content
     )
 }

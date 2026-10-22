@@ -9,12 +9,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.personal.msgforwarder.ui.AppNavigation
-import com.personal.msgforwarder.ui.components.UpdateCheckerWrapper
 import com.personal.msgforwarder.ui.theme.AppTheme
 import com.personal.msgforwarder.util.NotificationHelper
 
 /**
- * Single Activity — sets up Compose theme, notification channels, and permissions.
+ * Single Activity — sets up Dark theme, notification channels, and permissions.
  */
 class MainActivity : ComponentActivity() {
 
@@ -35,9 +34,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AppTheme {
-                UpdateCheckerWrapper {
-                    AppNavigation()
-                }
+                AppNavigation()
             }
         }
     }
