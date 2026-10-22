@@ -82,8 +82,9 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
                 val syncResult = GoogleSheetsManager.appendMessages(context, insertedMessages)
                 if (syncResult.isSuccess) {
                     val syncedIds = insertedMessages.map { it.id }
-                    dbHelper.markBatchSynced(syncedIds)
-                    Log.d(TAG, "Successfully synced ${syncedIds.size} SMS to Google Sheets immediately")
+                    dbHelper.deleteBatch(syncedIds)
+                    prefs.totalSyncedCount += syncedIds.size
+                    Log.d(TAG, "Successfully synced ${syncedIds.size} SMS to Google Sheets immediately and deleted from local storage")
                 } else {
                     Log.w(TAG, "Immediate sync failed: ${syncResult.exceptionOrNull()?.message}. Enqueueing WorkManager.")
                     BackupSyncWorker.enqueueSync(context)

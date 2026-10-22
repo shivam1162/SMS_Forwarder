@@ -18,7 +18,12 @@ class PreferencesHelper(context: Context) {
         private const val KEY_SPREADSHEET_ID = "spreadsheet_id"
         private const val KEY_SPREADSHEET_URL = "spreadsheet_url"
         private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
+        private const val KEY_TOTAL_SYNCED_COUNT = "total_synced_count"
     }
+
+    var totalSyncedCount: Int
+        get() = prefs.getInt(KEY_TOTAL_SYNCED_COUNT, 0)
+        set(value) = prefs.edit().putInt(KEY_TOTAL_SYNCED_COUNT, value).apply()
 
     var isBackupEnabled: Boolean
         get() = prefs.getBoolean(KEY_IS_BACKUP_ENABLED, true)

@@ -65,8 +65,9 @@ class BackupSyncWorker(
         val result = GoogleSheetsManager.appendMessages(context, pendingMessages)
         return if (result.isSuccess) {
             val syncedIds = pendingMessages.map { it.id }
-            dbHelper.markBatchSynced(syncedIds)
-            Log.d(TAG, "Successfully synced ${syncedIds.size} message(s) to Google Sheets")
+            dbHelper.deleteBatch(syncedIds)
+            prefs.totalSyncedCount += syncedIds.size
+            Log.d(TAG, "Successfully synced to Google Sheets and deleted ${syncedIds.size} message(s) from local storage")
             ListenableWorker.Result.success()
         } else {
             Log.e(TAG, "Sync failed: ${result.exceptionOrNull()?.message}, will retry with WorkManager")

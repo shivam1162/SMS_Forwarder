@@ -65,6 +65,25 @@ class MessageDbHelper(context: Context) :
         return db.insert(TABLE_MESSAGES, null, values)
     }
 
+    fun deleteMessage(id: Long) {
+        val db = writableDatabase
+        db.delete(TABLE_MESSAGES, "$COLUMN_ID = ?", arrayOf(id.toString()))
+    }
+
+    fun deleteBatch(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            for (id in ids) {
+                db.delete(TABLE_MESSAGES, "$COLUMN_ID = ?", arrayOf(id.toString()))
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
     fun markSynced(id: Long, syncedAt: Long = System.currentTimeMillis()) {
         val db = writableDatabase
         val values = ContentValues().apply {

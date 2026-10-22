@@ -62,9 +62,9 @@ fun HomeScreen() {
     var showAboutDialog by remember { mutableStateOf(false) }
 
     fun refreshData() {
-        messages = dbHelper.getRecentMessages(50)
+        messages = dbHelper.getPendingMessages()
         pendingCount = dbHelper.getPendingCount()
-        syncedCount = dbHelper.getSyncedCount()
+        syncedCount = prefs.totalSyncedCount
         spreadsheetUrl = prefs.spreadsheetUrl
     }
 
@@ -392,14 +392,14 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Recent Messages Header
+        // Offline Queue Header
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Recent Extracted Messages",
+                text = if (pendingCount > 0) "Offline Queue ($pendingCount)" else "Offline Queue (Clean)",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
@@ -432,17 +432,17 @@ fun HomeScreen() {
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "📥", fontSize = 32.sp)
+                    Text(text = "✨", fontSize = 32.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No messages backed up yet",
+                        text = "Local Storage is Clean",
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                         color = DarkText
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "When an SMS arrives, its full content will be captured and written as a new row in your Google Sheet.",
+                        text = "Messages are uploaded to your Google Sheet and immediately deleted from local storage. When offline, incoming messages are held here safely until reconnected.",
                         fontSize = 12.sp,
                         color = SubText,
                         modifier = Modifier.padding(horizontal = 8.dp)
