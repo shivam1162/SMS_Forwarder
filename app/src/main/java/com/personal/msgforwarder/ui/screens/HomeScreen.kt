@@ -11,6 +11,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -20,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,10 +35,7 @@ import com.personal.msgforwarder.data.google.GoogleAuthManager
 import com.personal.msgforwarder.data.google.GoogleSheetsManager
 import com.personal.msgforwarder.ui.components.AboutDialog
 import com.personal.msgforwarder.ui.components.HamburgerMenuIcon
-import com.personal.msgforwarder.ui.theme.ActiveGreen
-import com.personal.msgforwarder.ui.theme.TextGray
-import com.personal.msgforwarder.ui.theme.TextWhite
-import com.personal.msgforwarder.ui.theme.WarningOrange
+import com.personal.msgforwarder.ui.theme.*
 import com.personal.msgforwarder.worker.BackupSyncWorker
 import kotlinx.coroutines.launch
 
@@ -68,7 +67,7 @@ fun HomeScreen() {
         )
     }
 
-    // Refresh permissions & battery state when user returns to app from system settings
+    // Refresh permissions & battery state when user returns to app
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -95,21 +94,20 @@ fun HomeScreen() {
                 accountEmail = account.email
                 accountName = account.displayName ?: account.email
 
-                Toast.makeText(context, "Signed in as ${account.email}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Connected as ${account.email}", Toast.LENGTH_SHORT).show()
 
                 // Create or link spreadsheet in Drive
                 scope.launch {
                     val sheetResult = GoogleSheetsManager.getOrCreateSpreadsheet(context)
                     if (sheetResult.isSuccess) {
                         spreadsheetUrl = sheetResult.getOrNull()?.second
-                        Toast.makeText(context, "Linked to Google Sheet 'msg_backup'", Toast.LENGTH_SHORT).show()
                     }
                     BackupSyncWorker.enqueueSync(context)
                 }
             } else {
                 Toast.makeText(
                     context,
-                    "Google Sign-In failed: ${parseResult.exceptionOrNull()?.message}",
+                    "Sign-In failed: ${parseResult.exceptionOrNull()?.message}",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -130,8 +128,8 @@ fun HomeScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .background(DeepBlack)
+            .padding(horizontal = 20.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Top Bar
@@ -140,58 +138,73 @@ fun HomeScreen() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = { showAboutDialog = true }) {
-                HamburgerMenuIcon()
+            IconButton(
+                onClick = { showAboutDialog = true },
+                modifier = Modifier.size(40.dp)
+            ) {
+                HamburgerMenuIcon(color = TextSecondary)
             }
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "SMS to Google Sheets",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "SMS Backup",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary,
+                    fontSize = 17.sp,
+                    letterSpacing = 0.3.sp
                 )
                 Text(
-                    text = "msg_backup (Google Drive)",
+                    text = "Google Drive Sync",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextGray
+                    color = TextMuted,
+                    fontSize = 12.sp
                 )
             }
 
-            // Balanced spacing for top bar
-            Spacer(modifier = Modifier.width(48.dp))
+            // Balanced spacing for symmetry
+            Spacer(modifier = Modifier.width(40.dp))
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // SMS Permission Warning Banner
+        // SMS Permission Card
         if (!hasSmsPermission) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = WarningOrange.copy(alpha = 0.15f)),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                border = BorderStroke(1.dp, AccentAmber.copy(alpha = 0.35f))
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
+                        .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "⚠️", fontSize = 24.sp)
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(AccentAmber)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "SMS Permission Needed",
+                            text = "SMS Permission Required",
                             fontWeight = FontWeight.SemiBold,
-                            color = WarningOrange,
+                            color = TextPrimary,
                             fontSize = 14.sp
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Required to read incoming messages and append rows to your Google Sheet.",
+                            text = "Allows reading incoming messages to record them to your Google Sheet.",
                             fontSize = 12.sp,
-                            color = TextWhite
+                            color = TextSecondary,
+                            lineHeight = 16.sp
                         )
                     }
+                    Spacer(modifier = Modifier.width(12.dp))
                     Button(
                         onClick = {
                             permissionLauncher.launch(
@@ -201,44 +214,59 @@ fun HomeScreen() {
                                 )
                             )
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = WarningOrange),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentAmber),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        Text("Grant", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
+                        Text(
+                            text = "Grant",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = DeepBlack
+                        )
                     }
                 }
             }
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        // Battery Optimization Warning Banner (Doze & OEM Killer Protection)
+        // Battery Optimization Card
         if (!isIgnoringBatteryOptimizations) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+                border = BorderStroke(1.dp, BorderSubtle)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
+                        .padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "⚡", fontSize = 24.sp)
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF818CF8))
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Unrestricted Battery Sync",
+                            text = "Background Execution",
                             fontWeight = FontWeight.SemiBold,
-                            color = TextWhite,
+                            color = TextPrimary,
                             fontSize = 14.sp
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Allow app to run unrestricted so Android won't pause sync when your phone is locked.",
+                            text = "Enable unrestricted battery so synchronization runs uninterrupted while locked.",
                             fontSize = 12.sp,
-                            color = TextGray
+                            color = TextSecondary,
+                            lineHeight = 16.sp
                         )
                     }
+                    Spacer(modifier = Modifier.width(12.dp))
                     Button(
                         onClick = {
                             try {
@@ -251,59 +279,72 @@ fun HomeScreen() {
                                 context.startActivity(intent)
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, BorderSubtle),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        Text("Allow", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
+                        Text(
+                            text = "Allow",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
                     }
                 }
             }
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        // Google Account & Drive Status Card
+        // Google Account & Drive Sync Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, BorderSubtle)
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(modifier = Modifier.padding(20.dp)) {
                 if (!isSignedIn) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(10.dp)
+                                .size(8.dp)
                                 .clip(CircleShape)
-                                .background(WarningOrange)
+                                .background(TextMuted)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "Not Connected to Google",
+                            text = "GOOGLE ACCOUNT",
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = TextWhite
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp,
+                            color = TextSecondary
                         )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "Sign in to allow the app to automatically create and update 'msg_backup' in your Google Drive.",
+                        text = "Connect your Google account to automatically synchronize incoming messages to your personal Google Sheet.",
                         fontSize = 13.sp,
-                        color = TextGray
+                        color = TextSecondary,
+                        lineHeight = 19.sp
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
                     Button(
                         onClick = {
                             val intent = GoogleAuthManager.getSignInIntent(context)
                             googleSignInLauncher.launch(intent)
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(10.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            "Sign in with Google",
+                            text = "Sign in with Google",
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            color = DeepBlack,
+                            fontSize = 14.sp
                         )
                     }
                 } else {
@@ -315,16 +356,17 @@ fun HomeScreen() {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(10.dp)
+                                    .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(ActiveGreen)
+                                    .background(AccentEmerald)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Google Drive Connected",
+                                text = "CONNECTED TO DRIVE",
                                 fontWeight = FontWeight.SemiBold,
-                                color = ActiveGreen,
-                                fontSize = 14.sp
+                                color = AccentEmerald,
+                                fontSize = 11.sp,
+                                letterSpacing = 1.sp
                             )
                         }
 
@@ -337,45 +379,54 @@ fun HomeScreen() {
                                     accountEmail = null
                                     accountName = null
                                     spreadsheetUrl = null
-                                    Toast.makeText(context, "Signed out", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Disconnected", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("Sign Out", fontSize = 12.sp, color = TextGray)
+                            Text(
+                                text = "Disconnect",
+                                fontSize = 12.sp,
+                                color = TextMuted
+                            )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = accountEmail ?: "",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = TextWhite
+                        fontSize = 16.sp,
+                        color = TextPrimary
                     )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                    // Open in Google Sheets button
+                    // Open Spreadsheet button
                     Button(
                         onClick = {
                             val targetUrl = spreadsheetUrl ?: "https://drive.google.com"
                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
                             context.startActivity(intent)
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(10.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, BorderSubtle)
                     ) {
                         Text(
-                            text = "📊 Open 'msg_backup' in Google Sheets ↗",
+                            text = "Open Spreadsheet",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            color = TextPrimary
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(18.dp))
+                    HorizontalDivider(color = BorderSubtle, thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Backup Switch Toggle
                     Row(
@@ -383,17 +434,31 @@ fun HomeScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = if (isBackupEnabled) "Automatic backup is Active" else "Automatic backup is Paused",
-                            fontSize = 13.sp,
-                            color = if (isBackupEnabled) TextWhite else TextGray
-                        )
+                        Column {
+                            Text(
+                                text = "Automatic Backup",
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = if (isBackupEnabled) "Active and syncing" else "Paused",
+                                fontSize = 12.sp,
+                                color = TextMuted
+                            )
+                        }
                         Switch(
                             checked = isBackupEnabled,
                             onCheckedChange = { checked ->
                                 isBackupEnabled = checked
                                 prefs.isBackupEnabled = checked
-                            }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = DeepBlack,
+                                checkedTrackColor = AccentEmerald,
+                                uncheckedThumbColor = TextMuted,
+                                uncheckedTrackColor = SurfaceElevated
+                            )
                         )
                     }
                 }
@@ -402,32 +467,29 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Privacy & Info Card
+        // Privacy & Architecture Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
+            border = BorderStroke(1.dp, BorderSubtle)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(18.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "🔒", fontSize = 18.sp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Direct Sync & Privacy",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
-                        color = TextWhite
-                    )
-                }
+                Text(
+                    text = "Direct Sync Architecture",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = TextPrimary
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Incoming SMS messages are appended directly to your private Google Sheet and are not stored on this device.",
+                    text = "Incoming messages are securely transmitted directly to your private Google Sheet via TLS and are never stored on this device.",
                     fontSize = 12.sp,
-                    color = TextGray,
+                    color = TextSecondary,
                     lineHeight = 18.sp
                 )
             }

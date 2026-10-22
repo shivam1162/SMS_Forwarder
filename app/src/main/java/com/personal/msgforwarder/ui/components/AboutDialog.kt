@@ -1,5 +1,6 @@
 package com.personal.msgforwarder.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,17 +15,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personal.msgforwarder.ui.theme.BorderSubtle
+import com.personal.msgforwarder.ui.theme.SurfaceDark
+import com.personal.msgforwarder.ui.theme.TextPrimary
 
 /**
- * Clean 3-horizontal-line hamburger menu icon.
+ * Clean, minimalist 3-line menu icon.
  */
 @Composable
 fun HamburgerMenuIcon(
-    modifier: Modifier = Modifier.size(24.dp),
+    modifier: Modifier = Modifier.size(22.dp),
     color: Color = MaterialTheme.colorScheme.primary
 ) {
     Canvas(modifier = modifier) {
-        val strokeWidth = 2.5.dp.toPx()
+        val strokeWidth = 1.8.dp.toPx()
         val spacing = size.height / 3
 
         // Line 1 (Top)
@@ -40,7 +44,7 @@ fun HamburgerMenuIcon(
         drawLine(
             color = color,
             start = Offset(0f, spacing * 1.5f),
-            end = Offset(size.width, spacing * 1.5f),
+            end = Offset(size.width * 0.75f, spacing * 1.5f),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
         )
@@ -57,7 +61,7 @@ fun HamburgerMenuIcon(
 }
 
 /**
- * Minimal Dialog showing ONLY "Created by SHIVAM GUPTA".
+ * Minimalist, premium dialog displaying ONLY "Created by SHIVAM GUPTA".
  */
 @Composable
 fun AboutDialog(
@@ -65,30 +69,44 @@ fun AboutDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
+        containerColor = SurfaceDark,
+        tonalElevation = 6.dp,
         text = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 16.dp),
-                contentAlignment = Alignment.Center
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Transparent,
+                border = BorderStroke(1.dp, BorderSubtle),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "Created by SHIVAM GUPTA",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                    fontSize = 17.sp
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 20.dp, horizontal = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Created by SHIVAM GUPTA",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        textAlign = TextAlign.Center,
+                        fontSize = 16.sp,
+                        letterSpacing = 0.5.sp
+                    )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+            ) {
                 Text(
-                    text = "OK",
+                    text = "Close",
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
                 )
             }
         }

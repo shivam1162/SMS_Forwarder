@@ -2,23 +2,29 @@ package com.personal.msgforwarder.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Green (vibrant for dark mode)
-val GreenPrimary = Color(0xFF4CAF50)
-val GreenLight = Color(0xFF81C784)
-val GreenDark = Color(0xFF2E7D32)
+// Premium Minimalist Dark Palette
+val DeepBlack = Color(0xFF0A0B0D)
+val SurfaceDark = Color(0xFF121418)
+val SurfaceElevated = Color(0xFF181B20)
+val BorderSubtle = Color(0xFF22262E)
 
-// Dark Theme Backgrounds & Surfaces
-val DarkBackground = Color(0xFF121212)
-val DarkSurface = Color(0xFF1E1E1E)
-val DarkSurfaceVariant = Color(0xFF282828)
-val DarkCardBorder = Color(0xFF333333)
+// Refined Accents
+val AccentEmerald = Color(0xFF10B981)
+val AccentEmeraldDark = Color(0xFF065F46)
+val AccentAmber = Color(0xFFF59E0B)
+val AccentRed = Color(0xFFEF4444)
 
-// Text Colors
-val TextWhite = Color(0xFFEDEDED)
-val TextGray = Color(0xFFA5A5A5)
-val TextMuted = Color(0xFF757575)
+// Premium Typography Colors
+val TextPrimary = Color(0xFFF3F4F6)
+val TextSecondary = Color(0xFF9CA3AF)
+val TextMuted = Color(0xFF6B7280)
 
-// Status Colors
-val ActiveGreen = Color(0xFF4CAF50)
-val InactiveRed = Color(0xFFEF5350)
-val WarningOrange = Color(0xFFFFA726)
+// Legacy aliases for theme compatibility
+val DarkBackground = DeepBlack
+val DarkSurface = SurfaceDark
+val DarkSurfaceVariant = SurfaceElevated
+val TextWhite = TextPrimary
+val TextGray = TextSecondary
+val ActiveGreen = AccentEmerald
+val WarningOrange = AccentAmber
+val InactiveRed = AccentRed
