@@ -22,6 +22,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,7 +36,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.data.google.GoogleAuthManager
 import com.personal.msgforwarder.data.google.GoogleSheetsManager
-import com.personal.msgforwarder.ui.components.AboutDialog
+import com.personal.msgforwarder.ui.components.AppDrawerContent
 import com.personal.msgforwarder.ui.components.HamburgerMenuIcon
 import com.personal.msgforwarder.ui.theme.*
 import com.personal.msgforwarder.worker.BackupSyncWorker
@@ -51,7 +54,7 @@ fun HomeScreen() {
     var accountName by remember { mutableStateOf(prefs.googleAccountName) }
     var spreadsheetUrl by remember { mutableStateOf(prefs.spreadsheetUrl) }
     var isBackupEnabled by remember { mutableStateOf(prefs.isBackupEnabled) }
-    var showAboutDialog by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     // Battery Optimization Check
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
@@ -121,32 +124,39 @@ fun HomeScreen() {
                 ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
     }
 
-    if (showAboutDialog) {
-        AboutDialog(
-            prefs = prefs,
-            onDismiss = { showAboutDialog = false }
-        )
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(DeepBlack)
-            .padding(horizontal = 20.dp, vertical = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        scrimColor = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
+        drawerContent = {
+            AppDrawerContent(
+                prefs = prefs,
+                onClose = {
+                    scope.launch { drawerState.close() }
+                }
+            )
+        }
     ) {
-        // Top Bar
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(DeepBlack)
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            IconButton(
-                onClick = { showAboutDialog = true },
-                modifier = Modifier.size(40.dp)
+            // Top Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                HamburgerMenuIcon(color = TextSecondary)
-            }
+                IconButton(
+                    onClick = {
+                        scope.launch { drawerState.open() }
+                    },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    HamburgerMenuIcon(color = TextSecondary)
+                }
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
@@ -498,4 +508,5 @@ fun HomeScreen() {
             }
         }
     }
+}
 }
