@@ -2,9 +2,12 @@ package com.personal.msgforwarder.ui.screens
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +25,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.data.google.GoogleAuthManager
 import com.personal.msgforwarder.data.google.GoogleSheetsManager
@@ -39,6 +45,7 @@ fun HomeScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { PreferencesHelper(context) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var isSignedIn by remember { mutableStateOf(prefs.isSignedIn) }
     var accountEmail by remember { mutableStateOf(prefs.googleAccountEmail) }
@@ -46,6 +53,33 @@ fun HomeScreen() {
     var spreadsheetUrl by remember { mutableStateOf(prefs.spreadsheetUrl) }
     var isBackupEnabled by remember { mutableStateOf(prefs.isBackupEnabled) }
     var showAboutDialog by remember { mutableStateOf(false) }
+
+    // Battery Optimization Check
+    val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
+    var isIgnoringBatteryOptimizations by remember {
+        mutableStateOf(powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true)
+    }
+
+    // SMS permission check
+    var hasSmsPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    // Refresh permissions & battery state when user returns to app from system settings
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isIgnoringBatteryOptimizations = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+                hasSmsPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // Google Sign-In Activity Result Launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -80,14 +114,6 @@ fun HomeScreen() {
                 ).show()
             }
         }
-    }
-
-    // SMS permission check
-    var hasSmsPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
-        )
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -182,7 +208,57 @@ fun HomeScreen() {
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+        }
+
+        // Battery Optimization Warning Banner (Doze & OEM Killer Protection)
+        if (!isIgnoringBatteryOptimizations) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "⚡", fontSize = 24.sp)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Unrestricted Battery Sync",
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextWhite,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "Allow app to run unrestricted so Android won't pause sync when your phone is locked.",
+                            fontSize = 12.sp,
+                            color = TextGray
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            try {
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                context.startActivity(intent)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("Allow", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
         }
 
         // Google Account & Drive Status Card
