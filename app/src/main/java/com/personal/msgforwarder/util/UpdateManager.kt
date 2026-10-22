@@ -2,16 +2,14 @@ package com.personal.msgforwarder.util
 
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ValueEventListener
 import com.personal.msgforwarder.BuildConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -27,36 +25,68 @@ data class AppUpdateInfo(
 object UpdateManager {
 
     private const val TAG = "UpdateManager"
+    private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/shivam1162/SMS_Forwarder/releases/latest"
 
     /**
-     * Checks Firebase Realtime Database at /app_update for a newer APK version.
+     * Checks GitHub latest release for a newer APK version.
      */
     fun checkForUpdates(onResult: (AppUpdateInfo?) -> Unit) {
-        val database = FirebaseDatabase.getInstance()
-        val updateRef = database.getReference("app_update")
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val url = URL(GITHUB_RELEASES_URL)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.connectTimeout = 8000
+                connection.readTimeout = 8000
+                connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                connection.setRequestProperty("User-Agent", "SMS_Backup_Android_App")
+                connection.connect()
 
-        updateRef.addListenerForSingleValueEvent(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                try {
-                    val updateInfo = snapshot.getValue(AppUpdateInfo::class.java)
-                    if (updateInfo != null && updateInfo.versionCode > BuildConfig.VERSION_CODE && updateInfo.downloadUrl.isNotBlank()) {
-                        Log.d(TAG, "New version available: ${updateInfo.versionName} (${updateInfo.versionCode}) vs current ${BuildConfig.VERSION_CODE}")
-                        onResult(updateInfo)
-                    } else {
-                        Log.d(TAG, "App is up to date (version ${BuildConfig.VERSION_CODE})")
-                        onResult(null)
+                if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val tagName = json.optString("tag_name", "") // e.g. "v1.0.12"
+                    val releaseNotes = json.optString("body", "")
+
+                    // Find APK asset
+                    var downloadUrl = ""
+                    val assets = json.optJSONArray("assets")
+                    if (assets != null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            val name = asset.optString("name", "")
+                            if (name.endsWith(".apk")) {
+                                downloadUrl = asset.optString("browser_download_url", "")
+                                break
+                            }
+                        }
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing update info", e)
-                    onResult(null)
-                }
-            }
 
-            override fun onCancelled(error: DatabaseError) {
-                Log.e(TAG, "Failed to check for updates: ${error.message}")
-                onResult(null)
+                    // Extract build/run number from tag if possible, e.g. "v1.0.15" -> 15
+                    val tagClean = tagName.removePrefix("v")
+                    val versionParts = tagClean.split(".")
+                    val remoteBuildNumber = versionParts.lastOrNull()?.toIntOrNull() ?: 0
+
+                    if (remoteBuildNumber > BuildConfig.VERSION_CODE && downloadUrl.isNotBlank()) {
+                        Log.d(TAG, "New version found: $tagName (Build $remoteBuildNumber)")
+                        withContext(Dispatchers.Main) {
+                            onResult(
+                                AppUpdateInfo(
+                                    versionCode = remoteBuildNumber,
+                                    versionName = tagClean,
+                                    downloadUrl = downloadUrl,
+                                    releaseNotes = releaseNotes
+                                )
+                            )
+                        }
+                        return@launch
+                    }
+                }
+                withContext(Dispatchers.Main) { onResult(null) }
+            } catch (e: Exception) {
+                Log.d(TAG, "Update check failed or no connection: ${e.message}")
+                withContext(Dispatchers.Main) { onResult(null) }
             }
-        })
+        }
     }
 
     /**

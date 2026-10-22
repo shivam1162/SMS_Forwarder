@@ -5,24 +5,21 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
-import com.google.firebase.database.FirebaseDatabase
 import com.personal.msgforwarder.data.MessageData
 import com.personal.msgforwarder.data.PreferencesHelper
+import com.personal.msgforwarder.data.google.GoogleSheetsManager
+import com.personal.msgforwarder.data.local.MessageDbHelper
+import com.personal.msgforwarder.worker.BackupSyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Manifest-registered BroadcastReceiver for SMS_RECEIVED.
  *
- * Battery efficiency & Reliability:
- * - No persistent background service needed — Android OS delivers SMS events directly.
- * - When an SMS arrives, it uses goAsync() to hold the wake lock for a few seconds.
- * - Checks live activation state from Firebase Realtime Database.
- * - If active, pushes the SMS to Firebase immediately and updates heartbeat.
- * - Completes within ~1 second and allows the device to go back to sleep.
+ * Captures incoming SMS messages (handling multi-part messages),
+ * writes them immediately to local SQLite database (for offline safety),
+ * and syncs them to Google Sheets.
  */
 class SmsBroadcastReceiver : BroadcastReceiver() {
 
@@ -34,81 +31,66 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
         val prefs = PreferencesHelper(context)
-        val code = prefs.pairingCode
-
-        if (code.isNullOrBlank()) {
-            Log.d(TAG, "No pairing code configured, ignoring SMS")
+        if (!prefs.isBackupEnabled) {
+            Log.d(TAG, "SMS backup is disabled in settings, skipping.")
             return
         }
 
-        // Extract SMS messages from the intent
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         if (messages.isNullOrEmpty()) {
             Log.d(TAG, "No SMS messages found in intent")
             return
         }
 
-        // Group multi-part SMS by originating address
+        // Group multi-part SMS messages by originating sender
         val groupedMessages = mutableMapOf<String, StringBuilder>()
         for (msg in messages) {
             val sender = msg.displayOriginatingAddress ?: "Unknown"
             groupedMessages.getOrPut(sender) { StringBuilder() }.append(msg.messageBody ?: "")
         }
 
+        val dbHelper = MessageDbHelper.getInstance(context)
+        val timestamp = System.currentTimeMillis()
+        val insertedMessages = mutableListOf<MessageData>()
+
+        for ((sender, bodyBuilder) in groupedMessages) {
+            val body = bodyBuilder.toString()
+            val rowId = dbHelper.insertMessage(sender, body, timestamp)
+            Log.d(TAG, "Saved SMS from $sender to local DB (rowId=$rowId)")
+            insertedMessages.add(
+                MessageData(
+                    id = rowId,
+                    sender = sender,
+                    body = body,
+                    timestamp = timestamp,
+                    isSynced = false
+                )
+            )
+        }
+
+        // If not signed in to Google yet, keep in local DB for when user signs in
+        if (!prefs.isSignedIn) {
+            Log.d(TAG, "User not signed in to Google, message queued locally.")
+            return
+        }
+
         val pendingResult = goAsync()
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Fetch live activation state from Firebase with a 5-second timeout
-                val database = FirebaseDatabase.getInstance()
-                val channelRef = database.getReference("channels").child(code)
-
-                val activeSnapshot = withTimeoutOrNull(5000L) {
-                    channelRef.child("active").get().await()
-                }
-
-                val isLiveActive = activeSnapshot?.getValue(Boolean::class.java) ?: prefs.isActive
-                Log.d(TAG, "SMS received. Live active status in Firebase: $isLiveActive (local cached: ${prefs.isActive})")
-
-                // Update local cache
-                prefs.isActive = isLiveActive
-
-                if (isLiveActive) {
-                    val timestamp = System.currentTimeMillis()
-
-                    for ((sender, bodyBuilder) in groupedMessages) {
-                        val body = bodyBuilder.toString()
-                        Log.d(TAG, "Encrypting and forwarding SMS from $sender...")
-
-                        // Encrypt sender + body with AES-256-GCM using the pairing code
-                        val encryptedPayload = com.personal.msgforwarder.util.CryptoHelper.encrypt(
-                            sender = sender,
-                            body = body,
-                            pairingCode = code
-                        )
-
-                        val message = MessageData(
-                            sender = "[Encrypted]",
-                            body = "[Encrypted Message]",
-                            timestamp = timestamp,
-                            encrypted = encryptedPayload
-                        )
-
-                        // Push encrypted message to Firebase
-                        channelRef.child("messages").push().setValue(message).await()
-                    }
-
-                    // Also update heartbeat to show Mom's phone is currently active & online
-                    channelRef.child("heartbeat").child("lastSeen").setValue(timestamp)
-
-                    // Auto-delete messages older than 30 minutes from Firebase
-                    com.personal.msgforwarder.data.FirebaseHelper.purgeOldMessages(code)
-                    Log.d(TAG, "Successfully forwarded SMS to Firebase channel: $code")
+                // Try immediate upload to Google Sheets
+                val syncResult = GoogleSheetsManager.appendMessages(context, insertedMessages)
+                if (syncResult.isSuccess) {
+                    val syncedIds = insertedMessages.map { it.id }
+                    dbHelper.markBatchSynced(syncedIds)
+                    Log.d(TAG, "Successfully synced ${syncedIds.size} SMS to Google Sheets immediately")
                 } else {
-                    Log.d(TAG, "Forwarding is inactive, discarded SMS.")
+                    Log.w(TAG, "Immediate sync failed: ${syncResult.exceptionOrNull()?.message}. Enqueueing WorkManager.")
+                    BackupSyncWorker.enqueueSync(context)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing/forwarding SMS", e)
+                Log.e(TAG, "Error syncing SMS to Google Sheets, queueing with WorkManager", e)
+                BackupSyncWorker.enqueueSync(context)
             } finally {
                 pendingResult.finish()
             }

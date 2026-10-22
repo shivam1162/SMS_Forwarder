@@ -5,15 +5,14 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
-        android:label="SMS Forwarder"
+        android:label="SMS Backup"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
@@ -37,7 +36,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Boot Receiver — re-schedules heartbeat after phone restart -->
+        <!-- Boot Receiver — re-schedules sync worker for any pending messages after phone restart -->
         <receiver
             android:name=".receiver.BootReceiver"
             android:exported="true">
@@ -45,21 +44,6 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-
-        <!-- FCM Service — receives push notifications from partner device -->
-        <service
-            android:name=".service.FcmService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
-
-        <!-- Receiver Foreground Service — keeps receiver phone listening when active -->
-        <service
-            android:name=".service.ReceiverService"
-            android:foregroundServiceType="dataSync"
-            android:exported="false" />
 
         <!-- FileProvider for In-App APK Updates -->
         <provider
