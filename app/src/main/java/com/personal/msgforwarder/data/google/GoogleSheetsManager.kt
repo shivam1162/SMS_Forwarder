@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.personal.msgforwarder.data.MessageData
 import com.personal.msgforwarder.data.PreferencesHelper
+import com.personal.msgforwarder.util.CryptoHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -378,15 +379,24 @@ object GoogleSheetsManager {
             var token = GoogleAuthManager.getAccessToken(context)
                 ?: return@withContext Result.failure(Exception("Failed to acquire Google OAuth token"))
 
+            val prefs = PreferencesHelper(context)
+            val isEncryptionActive = prefs.isEncryptionEnabled && !prefs.encryptionKey.isNullOrBlank()
+            val encKey = prefs.encryptionKey ?: ""
+
             val rowsArray = JSONArray()
             for (msg in messages) {
                 val dateStr = dateFormatter.format(Date(msg.timestamp))
                 val timeStr = timeFormatter.format(Date(msg.timestamp))
+                val bodyToUpload = if (isEncryptionActive) {
+                    CryptoHelper.encrypt(msg.body, encKey)
+                } else {
+                    msg.body
+                }
                 val row = JSONArray().apply {
                     put(dateStr)
                     put(timeStr)
                     put(msg.sender)
-                    put(msg.body)
+                    put(bodyToUpload)
                 }
                 rowsArray.put(row)
             }

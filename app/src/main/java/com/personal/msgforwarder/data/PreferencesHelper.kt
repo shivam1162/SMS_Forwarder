@@ -19,7 +19,17 @@ class PreferencesHelper(context: Context) {
         private const val KEY_SPREADSHEET_URL = "spreadsheet_url"
         private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
         private const val KEY_TOTAL_SYNCED_COUNT = "total_synced_count"
+        private const val KEY_IS_ENCRYPTION_ENABLED = "is_encryption_enabled"
+        private const val KEY_ENCRYPTION_KEY = "encryption_key"
     }
+
+    var isEncryptionEnabled: Boolean
+        get() = prefs.getBoolean(KEY_IS_ENCRYPTION_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_IS_ENCRYPTION_ENABLED, value).apply()
+
+    var encryptionKey: String?
+        get() = prefs.getString(KEY_ENCRYPTION_KEY, null)
+        set(value) = prefs.edit().putString(KEY_ENCRYPTION_KEY, value).apply()
 
     var totalSyncedCount: Int
         get() = prefs.getInt(KEY_TOTAL_SYNCED_COUNT, 0)

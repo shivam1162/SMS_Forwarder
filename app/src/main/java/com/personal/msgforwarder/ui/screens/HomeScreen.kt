@@ -122,7 +122,10 @@ fun HomeScreen() {
     }
 
     if (showAboutDialog) {
-        AboutDialog(onDismiss = { showAboutDialog = false })
+        AboutDialog(
+            prefs = prefs,
+            onDismiss = { showAboutDialog = false }
+        )
     }
 
     Column(
