@@ -27,15 +27,15 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build Debug APK
+      - name: Build Release APK
         env:
           GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        run: gradle assembleDebug
+        run: gradle assembleRelease
 
       - name: Prepare APK Asset
         run: |
           mkdir -p release_assets
-          cp app/build/outputs/apk/debug/app-debug.apk release_assets/SMS_Backup.apk
+          cp app/build/outputs/apk/release/app-release.apk release_assets/SMS_Backup.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -50,5 +50,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sms-backup-debug
+          name: sms-backup-release
           path: release_assets/SMS_Backup.apk
