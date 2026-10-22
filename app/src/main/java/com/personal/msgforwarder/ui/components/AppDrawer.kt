@@ -233,7 +233,9 @@ fun AppDrawerContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(top = 18.dp, bottom = 24.dp)
         ) {
             // Header: Title & Close Button
             Row(

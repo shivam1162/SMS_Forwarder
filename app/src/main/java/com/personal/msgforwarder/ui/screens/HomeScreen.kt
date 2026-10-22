@@ -140,7 +140,9 @@ fun HomeScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(DeepBlack)
-                .padding(horizontal = 20.dp, vertical = 20.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(top = 18.dp, bottom = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Top Bar
