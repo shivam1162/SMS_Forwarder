@@ -10,8 +10,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -19,17 +17,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.personal.msgforwarder.data.MessageData
 import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.data.google.GoogleAuthManager
 import com.personal.msgforwarder.data.google.GoogleSheetsManager
-import com.personal.msgforwarder.data.local.MessageDbHelper
 import com.personal.msgforwarder.ui.components.AboutDialog
 import com.personal.msgforwarder.ui.components.HamburgerMenuIcon
 import com.personal.msgforwarder.ui.theme.ActiveGreen
@@ -38,39 +33,19 @@ import com.personal.msgforwarder.ui.theme.SubText
 import com.personal.msgforwarder.ui.theme.WarningOrange
 import com.personal.msgforwarder.worker.BackupSyncWorker
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { PreferencesHelper(context) }
-    val dbHelper = remember { MessageDbHelper.getInstance(context) }
 
     var isSignedIn by remember { mutableStateOf(prefs.isSignedIn) }
     var accountEmail by remember { mutableStateOf(prefs.googleAccountEmail) }
     var accountName by remember { mutableStateOf(prefs.googleAccountName) }
     var spreadsheetUrl by remember { mutableStateOf(prefs.spreadsheetUrl) }
     var isBackupEnabled by remember { mutableStateOf(prefs.isBackupEnabled) }
-
-    var messages by remember { mutableStateOf(listOf<MessageData>()) }
-    var pendingCount by remember { mutableStateOf(0) }
-    var syncedCount by remember { mutableStateOf(0) }
-    var isSyncing by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
-
-    fun refreshData() {
-        messages = dbHelper.getPendingMessages()
-        pendingCount = dbHelper.getPendingCount()
-        syncedCount = prefs.totalSyncedCount
-        spreadsheetUrl = prefs.spreadsheetUrl
-    }
-
-    LaunchedEffect(Unit) {
-        refreshData()
-    }
 
     // Google Sign-In Activity Result Launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -90,16 +65,12 @@ fun HomeScreen() {
 
                 // Create or link spreadsheet in Drive
                 scope.launch {
-                    isSyncing = true
                     val sheetResult = GoogleSheetsManager.getOrCreateSpreadsheet(context)
                     if (sheetResult.isSuccess) {
                         spreadsheetUrl = sheetResult.getOrNull()?.second
                         Toast.makeText(context, "Linked to Google Sheet 'msg_backup'", Toast.LENGTH_SHORT).show()
                     }
-                    // Sync any pending messages
                     BackupSyncWorker.enqueueSync(context)
-                    refreshData()
-                    isSyncing = false
                 }
             } else {
                 Toast.makeText(
@@ -111,7 +82,7 @@ fun HomeScreen() {
         }
     }
 
-    // SMS & Notification permission check
+    // SMS permission check
     var hasSmsPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED &&
@@ -154,25 +125,17 @@ fun HomeScreen() {
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "msg_backup.xlsx / Sheet",
+                    text = "msg_backup (Google Drive)",
                     style = MaterialTheme.typography.bodySmall,
                     color = SubText
                 )
             }
 
-            IconButton(onClick = {
-                scope.launch {
-                    isSyncing = true
-                    BackupSyncWorker.enqueueSync(context)
-                    refreshData()
-                    isSyncing = false
-                }
-            }) {
-                Text(text = "🔄", fontSize = 18.sp)
-            }
+            // Balanced spacing for top bar
+            Spacer(modifier = Modifier.width(48.dp))
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         // SMS Permission Warning Banner
         if (!hasSmsPermission) {
@@ -218,16 +181,16 @@ fun HomeScreen() {
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
 
         // Google Account & Drive Status Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(18.dp)) {
                 if (!isSignedIn) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -244,13 +207,13 @@ fun HomeScreen() {
                             color = DarkText
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Sign in to allow the app to create and update 'msg_backup' in your Google Drive.",
+                        text = "Sign in to allow the app to automatically create and update 'msg_backup' in your Google Drive.",
                         fontSize = 13.sp,
                         color = SubText
                     )
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
                             val intent = GoogleAuthManager.getSignInIntent(context)
@@ -293,7 +256,6 @@ fun HomeScreen() {
                                     accountEmail = null
                                     accountName = null
                                     spreadsheetUrl = null
-                                    refreshData()
                                     Toast.makeText(context, "Signed out", Toast.LENGTH_SHORT).show()
                                 }
                             },
@@ -307,14 +269,14 @@ fun HomeScreen() {
                     Text(
                         text = accountEmail ?: "",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         color = DarkText
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    // Drive spreadsheet link button
-                    OutlinedButton(
+                    // Open in Google Sheets button
+                    Button(
                         onClick = {
                             val targetUrl = spreadsheetUrl ?: "https://drive.google.com"
                             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl))
@@ -325,12 +287,12 @@ fun HomeScreen() {
                     ) {
                         Text(
                             text = "📊 Open 'msg_backup' in Google Sheets ↗",
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // Backup Switch Toggle
                     Row(
@@ -355,165 +317,37 @@ fun HomeScreen() {
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // Stats Row
-        Row(
+        // Privacy & Info Card
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
         ) {
-            Card(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(text = "$syncedCount", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = ActiveGreen)
-                    Text(text = "Synced", fontSize = 12.sp, color = SubText)
-                }
-            }
-
-            Card(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            ) {
-                Column(modifier = Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = "🔒", fontSize = 18.sp)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "$pendingCount",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (pendingCount > 0) WarningOrange else SubText
-                    )
-                    Text(text = "Pending Queue", fontSize = 12.sp, color = SubText)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Offline Queue Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = if (pendingCount > 0) "Offline Queue ($pendingCount)" else "Offline Queue (Clean)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            if (pendingCount > 0 && isSignedIn) {
-                TextButton(onClick = {
-                    scope.launch {
-                        isSyncing = true
-                        BackupSyncWorker.enqueueSync(context)
-                        refreshData()
-                        isSyncing = false
-                    }
-                }) {
-                    Text("Sync Queue", fontSize = 12.sp)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Message List
-        if (messages.isEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(text = "✨", fontSize = 32.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Local Storage is Clean",
+                        text = "Direct Sync & Privacy",
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         color = DarkText
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Messages are uploaded to your Google Sheet and immediately deleted from local storage. When offline, incoming messages are held here safely until reconnected.",
-                        fontSize = 12.sp,
-                        color = SubText,
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(messages, key = { it.id }) { message ->
-                    MessageCard(message)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MessageCard(message: MessageData) {
-    val dateFormatter = remember { SimpleDateFormat("dd-MM-yyyy • hh:mm:ss a", Locale.getDefault()) }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = message.sender,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    text = "Incoming SMS messages are appended directly to your private Google Sheet and are not stored on this device.",
+                    fontSize = 12.sp,
+                    color = SubText,
+                    lineHeight = 18.sp
                 )
-
-                // Sync status chip
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (message.isSynced) ActiveGreen.copy(alpha = 0.15f) else WarningOrange.copy(alpha = 0.15f)
-                ) {
-                    Text(
-                        text = if (message.isSynced) "✅ Synced" else "⏳ In Queue",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (message.isSynced) ActiveGreen else WarningOrange
-                    )
-                }
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = message.body,
-                style = MaterialTheme.typography.bodyMedium,
-                color = DarkText
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = dateFormatter.format(Date(message.timestamp)),
-                style = MaterialTheme.typography.bodySmall,
-                color = SubText,
-                fontSize = 11.sp
-            )
         }
     }
 }
