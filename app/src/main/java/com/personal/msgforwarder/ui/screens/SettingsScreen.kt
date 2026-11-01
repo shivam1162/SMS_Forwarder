@@ -29,6 +29,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
+    isDarkMode: Boolean = true,
+    onToggleDarkMode: (Boolean) -> Unit = {},
     onOpenDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -127,7 +129,7 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = AccentEmerald,
-                        contentColor = DeepBlack
+                        contentColor = PaletteDeepBlack
                     ),
                     shape = RoundedCornerShape(10.dp)
                 ) {
@@ -287,7 +289,73 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 2: Backup Preferences
+        // Card 2: Appearance & Theme
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(AccentEmerald)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "APPEARANCE",
+                                fontWeight = FontWeight.SemiBold,
+                                color = AccentEmerald,
+                                fontSize = 11.sp,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = if (isDarkMode) "Dark Mode" else "Light Mode",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isDarkMode) "OLED deep black luxury palette" else "Clean high-contrast daytime palette",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Switch(
+                        checked = isDarkMode,
+                        onCheckedChange = { checked ->
+                            onToggleDarkMode(checked)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = DeepBlack,
+                            checkedTrackColor = AccentEmerald,
+                            uncheckedThumbColor = TextMuted,
+                            uncheckedTrackColor = SurfaceElevated
+                        )
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Card 3: Backup Preferences
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -335,7 +403,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 3: AES-256 Encryption & Security
+        // Card 4: AES-256 Encryption & Security
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -441,7 +509,7 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 4: About SuperApp
+        // Card 5: About SuperApp
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),

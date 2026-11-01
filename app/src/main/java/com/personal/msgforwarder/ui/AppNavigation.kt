@@ -26,7 +26,10 @@ enum class AppScreen {
  * App navigation hosting SuperApp drawer and active component screens.
  */
 @Composable
-fun AppNavigation() {
+fun AppNavigation(
+    isDarkMode: Boolean = true,
+    onToggleDarkMode: (Boolean) -> Unit = {}
+) {
     val context = LocalContext.current
     val prefs = remember { PreferencesHelper(context) }
     val scope = rememberCoroutineScope()
@@ -68,6 +71,8 @@ fun AppNavigation() {
             }
             AppScreen.SETTING -> {
                 SettingsScreen(
+                    isDarkMode = isDarkMode,
+                    onToggleDarkMode = onToggleDarkMode,
                     onOpenDrawer = {
                         scope.launch { drawerState.open() }
                     }

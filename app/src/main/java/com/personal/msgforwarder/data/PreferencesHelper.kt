@@ -23,7 +23,12 @@ class PreferencesHelper(context: Context) {
         private const val KEY_IS_ENCRYPTION_ENABLED = "is_encryption_enabled"
         private const val KEY_ENCRYPTION_KEY = "encryption_key"
         private const val KEY_SHEET_TAB_ID = "sheet_tab_id"
+        private const val KEY_IS_DARK_MODE = "is_dark_mode"
     }
+
+    var isDarkMode: Boolean
+        get() = prefs.getBoolean(KEY_IS_DARK_MODE, true)
+        set(value) = prefs.edit().putBoolean(KEY_IS_DARK_MODE, value).apply()
 
     var sheetTabId: Int
         get() = prefs.getInt(KEY_SHEET_TAB_ID, 0)

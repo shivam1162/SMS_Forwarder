@@ -7,13 +7,18 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.ui.AppNavigation
 import com.personal.msgforwarder.ui.theme.AppTheme
 import com.personal.msgforwarder.util.NotificationHelper
 
 /**
- * Single Activity — sets up Dark theme, notification channels, and permissions.
+ * Single Activity — sets up dynamic theme, notification channels, and permissions.
  */
 class MainActivity : ComponentActivity() {
 
@@ -32,9 +37,19 @@ class MainActivity : ComponentActivity() {
         // Request SMS & notification permissions on launch
         requestAppPermissions()
 
+        val prefs = PreferencesHelper(this)
+
         setContent {
-            AppTheme {
-                AppNavigation()
+            var isDark by remember { mutableStateOf(prefs.isDarkMode) }
+
+            AppTheme(isDark = isDark) {
+                AppNavigation(
+                    isDarkMode = isDark,
+                    onToggleDarkMode = { newMode ->
+                        prefs.isDarkMode = newMode
+                        isDark = newMode
+                    }
+                )
             }
         }
     }

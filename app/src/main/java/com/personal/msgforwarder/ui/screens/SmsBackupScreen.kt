@@ -225,7 +225,7 @@ fun SmsBackupScreen(
                             text = "Grant",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = DeepBlack
+                            color = PaletteDeepBlack
                         )
                     }
                 }
@@ -346,7 +346,7 @@ fun SmsBackupScreen(
                         Text(
                             text = "Sign in with Google",
                             fontWeight = FontWeight.SemiBold,
-                            color = DeepBlack,
+                            color = PaletteDeepBlack,
                             fontSize = 14.sp
                         )
                     }

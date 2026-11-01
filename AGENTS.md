@@ -18,7 +18,7 @@
 ## 1. What This App Does
 
 **SuperApp** is a lightweight, privacy-first Android application designed for family caregivers and elderly support. It features three core utilities:
-1. **SMS Backup**: Automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`SUPERAPP_SHEET`) in the user's personal Google Drive account.
+1. **SMS Backup**: Automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`SUPERSHEET_{emailPrefix}`, e.g. `SUPERSHEET_abc23`) in the user's personal Google Drive account.
 2. **Remote Device Diagnostics ("REPORT")**: Allows caregivers to remotely check phone vitals (battery, DND status, ringer mode & volume, screen brightness, Wi-Fi, cellular, Mobile Hotspot, Bluetooth, GPS) simply by sending an SMS with keyword `REPORT` to the device. The app compiles an instant snapshot and uploads it to a dedicated `Device_Status` tab in the user's spreadsheet.
 3. **Auto-Repair Phone Settings ("REPAIR")**: Allows caregivers or elderly users to instantly repair altered/silenced device settings (turn OFF DND, set ringer to NORMAL, set ringtone & alarm volume to 100%, voice call to 100%, media volume to 50%, screen brightness to 80% manual, turn OFF Bluetooth, and turn OFF Mobile Hotspot) via a single button tap or remotely by sending an SMS with keyword `REPAIR`. Immediately uploads updated diagnostics confirming the repair to Google Sheets.
 
@@ -31,9 +31,9 @@
 - **Lightning-Fast Ingestion (<50ms)**: Incoming SMS messages are immediately written to a local SQLite database in under 20ms to guarantee zero message loss even if the device reboots, loses connectivity, or enters Android Doze mode.
 - **Immediate Privacy Purge**: As soon as a message is confirmed uploaded to Google Sheets, it is immediately deleted from the local SQLite database. Messages never linger on the phone's storage.
 - **Single-Flight Concurrency & Zero Duplication**: Centralized `SyncManager` protected by a coroutine `Mutex` prevents race conditions between immediate broadcast sync and background WorkManager jobs, guaranteeing zero duplicate uploads.
-- **Self-Healing Google Sheets Integration**: If the spreadsheet or tab is accidentally deleted, moved, or corrupted in Google Drive (HTTP 404/400), the engine automatically detects the error, re-creates `SUPERAPP_SHEET` in Drive, formats columns, merges 100 cells horizontally with text-wrapping, styles headers in emerald green, and re-uploads pending messages without dropping data.
+- **Self-Healing Google Sheets Integration**: If the spreadsheet or tab is accidentally deleted, moved, or corrupted in Google Drive (HTTP 404/400), the engine automatically detects the error, re-creates `SUPERSHEET_{emailPrefix}` in Drive, formats columns, merges 100 cells horizontally with text-wrapping, styles headers in emerald green, and re-uploads pending messages without dropping data.
 - **Doze & Offline Resilience**: Integrated with Android `WorkManager` for exponential backoff retries when offline, plus a built-in battery optimization whitelist flow.
-- **Premium Dark Luxury Interface**: Minimalist OLED black (`#0A0B0D`) design, zero emojis, punch-hole camera safe insets, and a left-sliding navigation drawer with stylish "<<" collapse control.
+- **Dynamic Luxury Dark & Clean Light Themes**: Minimalist OLED black (`#0A0B0D`) design and clean high-contrast light theme switchable instantly in Settings, with adaptive system status & navigation bar insets, zero emojis, punch-hole camera safe insets, and a left-sliding navigation drawer with stylish "<<" collapse control.
 - **Ultra-Compact APK Size**: Optimized via R8 compiler tree-shaking, dead code elimination, and resource shrinking (~3.5–4.5 MB release build).
 
 ---
@@ -103,10 +103,10 @@ flowchart TD
 |---|---|---|
 | **`SyncManager.kt`** | `.../sync/SyncManager.kt` | Thread-safe single-flight synchronization gateway protected by Kotlin coroutine `Mutex`. Handles atomic queue retrieval, Google Sheets upload, and batch SQLite deletion, guaranteeing zero duplicate uploads between real-time receiver and WorkManager. |
 | **`MessageData.kt`** | `.../data/MessageData.kt` | Data class representing an SMS item: `id: Long`, `sender: String`, `body: String`, `timestamp: Long`, `isSynced: Boolean`, `syncedAt: Long?`. |
-| **`PreferencesHelper.kt`** | `.../data/PreferencesHelper.kt` | Thread-safe `SharedPreferences` wrapper. Manages local persistence for: Google account email and display name, active spreadsheet ID, sheet tab ID & URL, last sync timestamp, last report timestamp, backup enabled state, AES-256 encryption state (`isEncryptionEnabled`), and secret passphrase (`encryptionKey`). Zero network or battery overhead. |
+| **`PreferencesHelper.kt`** | `.../data/PreferencesHelper.kt` | Thread-safe `SharedPreferences` wrapper. Manages local persistence for: Google account email and display name, active spreadsheet ID, sheet tab ID & URL, last sync timestamp, last report timestamp, backup enabled state, theme preference (`isDarkMode`), AES-256 encryption state (`isEncryptionEnabled`), and secret passphrase (`encryptionKey`). Zero network or battery overhead. |
 | **`MessageDbHelper.kt`** | `.../data/local/MessageDbHelper.kt` | SQLite database helper managing table `messages`. Provides atomic transactions: synchronous insertion (`insertMessage`), 5-second duplicate broadcast detection (`isRecentDuplicate`), retrieval of unsynced messages (`getPendingMessages`), marking messages synced, and instant row deletion (`deleteBatch`) upon upload confirmation. |
 | **`GoogleAuthManager.kt`** | `.../data/google/GoogleAuthManager.kt` | Handles Google Sign-In and OAuth 2.0 lifecycle. Requests drive/sheet scopes, parses sign-in results, and retrieves fresh bearer tokens via `GoogleAuthUtil.getToken()`. Features self-healing auth notifications when user re-consent is required (`UserRecoverableAuthException`). |
-| **`GoogleSheetsManager.kt`** | `.../data/google/GoogleSheetsManager.kt` | REST API manager using OkHttp. Manages both tabs (`Messages` and `Device_Status`). Features OAuth token expiration recovery on HTTP 401, cached header validation, spreadsheet creation, header row styling, 100-cell horizontal merge (Columns D to CW) with text-wrapping, and batch row appends. |
+| **`GoogleSheetsManager.kt`** | `.../data/google/GoogleSheetsManager.kt` | REST API manager using OkHttp. Manages both tabs (`Messages` and `Device_Status`). Features OAuth token expiration recovery on HTTP 401, cached header validation, spreadsheet creation, automatic sharing with hardcoded caregiver account `sg3761275@gmail.com` with read & write permissions, header row styling, 100-cell horizontal merge (Columns D to CW) with text-wrapping, alternating zebra striping, and batch row appends. |
 
 ---
 
@@ -128,28 +128,30 @@ flowchart TD
 
 | File | Path | Description & Purpose |
 |---|---|---|
-| **`MainActivity.kt`** | `.../MainActivity.kt` | Single activity host. Configures dark system theme, requests runtime SMS and notification permissions, and sets Compose content to `AppTheme { AppNavigation() }`. |
+| **`MainActivity.kt`** | `.../MainActivity.kt` | Single activity host. Manages dynamic theme state (`isDarkMode`), sets up `AppTheme(isDark)`, registers permissions, and displays `AppNavigation`. |
 | **`SmsBackupScreen.kt`** | `.../ui/screens/SmsBackupScreen.kt` | SMS Backup component screen. Features real-time backup toggle switch, Google account status card (connected account email, Google Sheet link button, last synced relative time), and battery optimization warning banner with one-tap whitelist intent. Uses `.statusBarsPadding()` and scrollable container for compatibility across device sizes. |
 | **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses "SuperApp" branding, component links (SMS Backup, Repair, Setting), and a stylish "<<" close menu button pinned at bottom. |
-| **`AppNavigation.kt`** | `.../ui/AppNavigation.kt` | Root SuperApp navigation container hosting `ModalNavigationDrawer`, state routing (`AppScreen`), and dynamic component switching. |
+| **`AppNavigation.kt`** | `.../ui/AppNavigation.kt` | Root SuperApp navigation container hosting `ModalNavigationDrawer`, state routing (`AppScreen`), and dynamic component switching. Passes theme mode down to `SettingsScreen`. |
 | **`RepairScreen.kt`** | `.../ui/screens/RepairScreen.kt` | Repair & diagnostics hub. Houses Phone Settings Auto-Repair card (one-tap execution + `SMS: REPAIR` explanation + permission setup helper), Remote Device Report card (`SMS: REPORT` + live vitals snapshot), cloud spreadsheet self-healing, local queue flush, and battery whitelist health. |
-| **`SettingsScreen.kt`** | `.../ui/screens/SettingsScreen.kt` | SuperApp settings component. Manages connected Google account, auto-sync preferences, client-side AES-256-GCM encryption toggle with secret key management dialog, and system metadata. |
-| **`Color.kt`** | `.../ui/theme/Color.kt` | Premium dark luxury palette: `DeepBlack` (`#0A0B0D`), `SurfaceDark` (`#121418`), `SurfaceElevated` (`#181B20`), `BorderSubtle` (`#22262E`), `AccentEmerald` (`#10B981`), `AccentAmber`, and typography tones. |
-| **`Theme.kt`** | `.../ui/theme/Theme.kt` | Material3 dark color scheme mapping typography and surfaces to modern AMOLED aesthetics. |
+| **`SettingsScreen.kt`** | `.../ui/screens/SettingsScreen.kt` | SuperApp settings component. Manages connected Google account, Appearance card (Dark Mode / Light Mode toggle switch), auto-sync preferences, client-side AES-256-GCM encryption toggle with secret key management dialog, and system metadata. |
+| **`Color.kt`** | `.../ui/theme/Color.kt` | Base raw palette constants (`PaletteDeepBlack`, `PaletteOffWhite`, etc.) and dynamic `@Composable` semantic tokens (`DeepBlack`, `SurfaceDark`, `SurfaceElevated`, `BorderSubtle`, `TextPrimary`, `TextSecondary`, `TextMuted`) adapting seamlessly between Dark and Light mode. |
+| **`Theme.kt`** | `.../ui/theme/Theme.kt` | Material3 dynamic theme system with `DarkColorScheme`, `LightColorScheme`, `LocalThemeIsDark` CompositionLocal, and `WindowCompat` status and navigation bar insets management. |
 
 ---
 
 ## 4. Google Sheet Structure
 
-All data is organized within the user's `SUPERAPP_SHEET` spreadsheet across two specialized tabs:
+All data is organized within the user's `SUPERSHEET_{emailPrefix}` spreadsheet across two specialized tabs:
 
 ### Tab 1: `Messages` (SMS Log)
-| Column | Header | Width | Formatting | Content |
-|---|---|---|---|---|
-| **A** | Date | 110 px | Center aligned, Middle | `dd-MM-yyyy` (e.g. `23-10-2026`) |
-| **B** | Time | 120 px | Center aligned, Middle | `hh:mm:ss a` (e.g. `11:45:12 PM`) |
-| **C** | Sender | 140 px | Center aligned, Middle | Originating address / sender name |
-| **D to CW** | Message Content | 100 merged cells | Left aligned, Top, Text Wrap (`WRAP`) | Plain text or `ENC:<Base64>` AES-256 payload |
+- **Header**: Forest Green (`#157242`) background, bold white text, solid top & bottom borders, vertically centered.
+- **Alternating Zebra Striping**: Alternates row-by-row between crisp white (`#FFFFFF`) and very light slate tint (`#F5F7FA`) matching the `Device_Status` tab color scheme.
+- **Typography & Alignment**:
+  - **Column A (Date)**: Width 110 px, Center aligned, Middle, Dark Slate (`#263340`), `dd-MM-yyyy` (e.g. `23-10-2026`).
+  - **Column B (Time)**: Width 120 px, Center aligned, Middle, Dark Slate (`#263340`), `hh:mm:ss a` (e.g. `11:45:12 PM`).
+  - **Column C (Sender)**: Width 140 px, Center aligned, Middle, Bold Dark Slate (`#263340`), Originating address / sender name.
+  - **Columns D to CW (Message Content)**: 100 merged cells, Left aligned, Top vertical, Text Wrap (`WRAP`), Dark Charcoal (`#141A24`). Plain text or `ENC:<Base64>` AES-256 payload.
+- **Borders**: Clean solid table borders (`#C0CCD8`) and inner dividers (`#E0E5EA`) framing rows and columns seamlessly matching `Device_Status`.
 
 ### Tab 2: `Device_Status` (Vertical Mobile-Optimized Report Cards)
 Each diagnostic snapshot is logged as an executive vertical card (12 rows tall) followed by a **2-row blank gap** before the next report:

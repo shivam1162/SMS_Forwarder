@@ -43,9 +43,23 @@ import java.util.concurrent.TimeUnit
 object GoogleSheetsManager {
 
     private const val TAG = "GoogleSheetsManager"
-    private const val SPREADSHEET_NAME = "SUPERAPP_SHEET"
+    private const val LEGACY_SPREADSHEET_NAME = "SUPERAPP_SHEET"
     private const val SHEET_TITLE = "Messages"
     private const val STATUS_SHEET_TITLE = "Device_Status"
+    private const val CAREGIVER_EMAIL = "sg3761275@gmail.com"
+
+    /**
+     * Resolves the spreadsheet name as 'SUPERSHEET_{prefix}' where {prefix} is the part of the
+     * user's Google account email before '@' (e.g. 'abc23@gmail.com' -> 'SUPERSHEET_abc23').
+     */
+    fun resolveSpreadsheetName(email: String?): String {
+        val prefix = email?.substringBefore('@')?.trim()
+        return if (!prefix.isNullOrBlank()) {
+            "SUPERSHEET_$prefix"
+        } else {
+            "SUPERSHEET"
+        }
+    }
 
     private const val REQUIRED_COLUMNS = 110
     private const val MSG_START_COL = 3
@@ -79,7 +93,7 @@ object GoogleSheetsManager {
      * Resolves the spreadsheet ID and webViewUrl for 'SUPERAPP_SHEET'.
      * Searches Google Drive first, verifies existing files, and self-heals if deleted.
      */
-    suspend fun getOrCreateSpreadsheet(context: Context): Result<Pair<String, String>> =
+    suspend fun getOrCreateSpreadsheet(context: Context, forceFormat: Boolean = false): Result<Pair<String, String>> =
         withContext(Dispatchers.IO) {
             val prefs = PreferencesHelper(context)
             val cachedId = prefs.spreadsheetId
@@ -104,9 +118,10 @@ object GoogleSheetsManager {
 
                 if (metadata.isValid) {
                     prefs.sheetTabId = metadata.sheetId
-                    // Only format if columns are missing (avoids redundant network calls on hot path)
-                    if (metadata.columnCount < REQUIRED_COLUMNS) {
+                    // Format if columns are missing or explicitly requested (repair / self-healing)
+                    if (forceFormat || metadata.columnCount < REQUIRED_COLUMNS) {
                         ensureSheetFormatted(cachedId, token, metadata)
+                        shareSpreadsheetWithCaregiver(context, cachedId, token)
                     }
                     return@withContext Result.success(Pair(cachedId, cachedUrl))
                 } else if (metadata.responseCode == 404 || metadata.responseCode == 400) {
@@ -116,8 +131,10 @@ object GoogleSheetsManager {
                 }
             }
 
-            // 1. Search Google Drive for existing 'SUPERAPP_SHEET'
-            val searchQuery = "name = '$SPREADSHEET_NAME' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
+            val targetSheetName = resolveSpreadsheetName(prefs.googleAccountEmail)
+
+            // 1. Search Google Drive for existing target sheet (or legacy SUPERAPP_SHEET)
+            val searchQuery = "(name = '$targetSheetName' or name = '$LEGACY_SPREADSHEET_NAME') and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
             val searchUrl = "https://www.googleapis.com/drive/v3/files?q=${URLEncoder.encode(searchQuery, "UTF-8")}&fields=files(id,name,webViewLink)"
 
             var searchRequest = Request.Builder()
@@ -165,15 +182,16 @@ object GoogleSheetsManager {
                 val metadata = getSheetMetadata(id, token)
                 prefs.sheetTabId = metadata.sheetId
                 ensureSheetFormatted(id, token, metadata)
+                shareSpreadsheetWithCaregiver(context, id, token)
 
                 return@withContext Result.success(Pair(id, url))
             }
 
             // 2. If not found in Drive, create a fresh Google Spreadsheet with 110 columns
-            Log.d(TAG, "Creating fresh spreadsheet: $SPREADSHEET_NAME")
+            Log.d(TAG, "Creating fresh spreadsheet: $targetSheetName")
             val createJson = JSONObject().apply {
                 put("properties", JSONObject().apply {
-                    put("title", SPREADSHEET_NAME)
+                    put("title", targetSheetName)
                 })
                 put("sheets", JSONArray().apply {
                     put(JSONObject().apply {
@@ -219,7 +237,10 @@ object GoogleSheetsManager {
             val metadata = SheetMetadata(sheetId = 0, columnCount = REQUIRED_COLUMNS, isValid = true, responseCode = 200)
             ensureSheetFormatted(spreadsheetId, token, metadata)
 
-            Log.d(TAG, "Created spreadsheet $spreadsheetId successfully with self-healing headers")
+            // Automatically share with hardcoded caregiver account (read & write)
+            shareSpreadsheetWithCaregiver(context, spreadsheetId, token)
+
+            Log.d(TAG, "Created spreadsheet $spreadsheetId successfully with self-healing headers & shared with $CAREGIVER_EMAIL")
             Result.success(Pair(spreadsheetId, spreadsheetUrl))
         }
 
@@ -388,6 +409,35 @@ object GoogleSheetsManager {
                 })
             }
 
+            // 4. Style Header Row Borders (Solid Forest Green)
+            requests.put(JSONObject().apply {
+                put("updateBorders", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetId)
+                        put("startRowIndex", 0)
+                        put("endRowIndex", 1)
+                        put("startColumnIndex", 0)
+                        put("endColumnIndex", MSG_END_COL)
+                    })
+                    put("top", JSONObject().apply {
+                        put("style", "SOLID_MEDIUM")
+                        put("color", JSONObject().apply {
+                            put("red", 0.082f)
+                            put("green", 0.447f)
+                            put("blue", 0.259f)
+                        })
+                    })
+                    put("bottom", JSONObject().apply {
+                        put("style", "SOLID_MEDIUM")
+                        put("color", JSONObject().apply {
+                            put("red", 0.082f)
+                            put("green", 0.447f)
+                            put("blue", 0.259f)
+                        })
+                    })
+                })
+            })
+
             val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
             val batchReq = Request.Builder()
                 .url(batchUrl)
@@ -397,8 +447,69 @@ object GoogleSheetsManager {
 
             httpClient.newCall(batchReq).execute().close()
             Log.d(TAG, "Header and sheet styling applied successfully")
+
+            // Check and format any existing rows in Messages tab (e.g. on repair or re-sync)
+            try {
+                val checkUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${SHEET_TITLE}!A2:A"
+                val checkReq = Request.Builder()
+                    .url(checkUrl)
+                    .addHeader("Authorization", "Bearer $token")
+                    .get()
+                    .build()
+                val checkResp = httpClient.newCall(checkReq).execute()
+                if (checkResp.isSuccessful) {
+                    val checkJson = JSONObject(checkResp.body?.string() ?: "{}")
+                    val vals = checkJson.optJSONArray("values")
+                    if (vals != null && vals.length() > 0) {
+                        val totalExistingRows = vals.length()
+                        val existingEndRow = 1 + totalExistingRows
+                        applyRowFormatting(spreadsheetId, token, "!A2:D$existingEndRow", sheetId)
+                    }
+                }
+                checkResp.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking existing message rows for formatting", e)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error applying sheet formatting", e)
+        }
+    }
+
+    /**
+     * Automatically grants Read & Write ('writer') permission on the spreadsheet
+     * to the hardcoded caregiver account (sg3761275@gmail.com).
+     */
+    private fun shareSpreadsheetWithCaregiver(context: Context, spreadsheetId: String, token: String) {
+        val prefs = PreferencesHelper(context)
+        if (prefs.googleAccountEmail.equals(CAREGIVER_EMAIL, ignoreCase = true)) {
+            Log.d(TAG, "Current signed-in user is caregiver ($CAREGIVER_EMAIL). Skipping share.")
+            return
+        }
+
+        try {
+            val sharePayload = JSONObject().apply {
+                put("role", "writer")
+                put("type", "user")
+                put("emailAddress", CAREGIVER_EMAIL)
+            }
+
+            val shareUrl = "https://www.googleapis.com/drive/v3/files/$spreadsheetId/permissions?sendNotificationEmail=true"
+            val shareReq = Request.Builder()
+                .url(shareUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .post(sharePayload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val response = httpClient.newCall(shareReq).execute()
+            if (response.isSuccessful) {
+                Log.d(TAG, "Successfully shared spreadsheet $spreadsheetId with $CAREGIVER_EMAIL (read & write)")
+            } else {
+                val err = response.body?.string()
+                Log.w(TAG, "Notice sharing spreadsheet with $CAREGIVER_EMAIL (${response.code}): $err")
+            }
+            response.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sharing spreadsheet with $CAREGIVER_EMAIL", e)
         }
     }
 
@@ -533,7 +644,9 @@ object GoogleSheetsManager {
 
     /**
      * Merges 100 cells horizontally (columns D to CW) for each appended row,
-     * enables text wrapping, aligns date/time to center, and aligns message to top.
+     * enables text wrapping, aligns date/time to center, aligns message to top,
+     * applies subtle alternating zebra striping (white and light slate tint),
+     * and elegant cell borders matching the Device_Status design.
      */
     private fun applyRowFormatting(
         spreadsheetId: String,
@@ -566,44 +679,165 @@ object GoogleSheetsManager {
                 })
             })
 
-            // 2. Format Date, Time, Sender columns: center horizontal, top vertical
+            // 2. Format each row with alternating zebra background and typography styling
+            for (rowIndex in startRow until endRow) {
+                val isWhiteRow = (rowIndex % 2 == 1) // Row 2, 4, 6... in 1-based sheet
+                val bgColor = if (isWhiteRow) {
+                    JSONObject().apply {
+                        put("red", 1.0f)
+                        put("green", 1.0f)
+                        put("blue", 1.0f) // Crisp white
+                    }
+                } else {
+                    JSONObject().apply {
+                        put("red", 0.96f)
+                        put("green", 0.97f)
+                        put("blue", 0.98f) // Very light slate tint
+                    }
+                }
+
+                // Col A (Date) & Col B (Time): Center horizontal, middle vertical, dark slate
+                requests.put(JSONObject().apply {
+                    put("repeatCell", JSONObject().apply {
+                        put("range", JSONObject().apply {
+                            put("sheetId", sheetId)
+                            put("startRowIndex", rowIndex)
+                            put("endRowIndex", rowIndex + 1)
+                            put("startColumnIndex", 0)
+                            put("endColumnIndex", 2)
+                        })
+                        put("cell", JSONObject().apply {
+                            put("userEnteredFormat", JSONObject().apply {
+                                put("backgroundColor", bgColor)
+                                put("textFormat", JSONObject().apply {
+                                    put("bold", false)
+                                    put("fontSize", 10)
+                                    put("foregroundColor", JSONObject().apply {
+                                        put("red", 0.15f)
+                                        put("green", 0.20f)
+                                        put("blue", 0.25f)
+                                    })
+                                })
+                                put("horizontalAlignment", "CENTER")
+                                put("verticalAlignment", "MIDDLE")
+                            })
+                        })
+                        put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
+                    })
+                })
+
+                // Col C (Sender): Center horizontal, middle vertical, dark slate, bold
+                requests.put(JSONObject().apply {
+                    put("repeatCell", JSONObject().apply {
+                        put("range", JSONObject().apply {
+                            put("sheetId", sheetId)
+                            put("startRowIndex", rowIndex)
+                            put("endRowIndex", rowIndex + 1)
+                            put("startColumnIndex", 2)
+                            put("endColumnIndex", 3)
+                        })
+                        put("cell", JSONObject().apply {
+                            put("userEnteredFormat", JSONObject().apply {
+                                put("backgroundColor", bgColor)
+                                put("textFormat", JSONObject().apply {
+                                    put("bold", true)
+                                    put("fontSize", 10)
+                                    put("foregroundColor", JSONObject().apply {
+                                        put("red", 0.15f)
+                                        put("green", 0.20f)
+                                        put("blue", 0.25f)
+                                    })
+                                })
+                                put("horizontalAlignment", "CENTER")
+                                put("verticalAlignment", "MIDDLE")
+                            })
+                        })
+                        put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
+                    })
+                })
+
+                // Cols D to CW (Message Content): Left horizontal, top vertical, text wrap, dark charcoal
+                requests.put(JSONObject().apply {
+                    put("repeatCell", JSONObject().apply {
+                        put("range", JSONObject().apply {
+                            put("sheetId", sheetId)
+                            put("startRowIndex", rowIndex)
+                            put("endRowIndex", rowIndex + 1)
+                            put("startColumnIndex", MSG_START_COL)
+                            put("endColumnIndex", MSG_END_COL)
+                        })
+                        put("cell", JSONObject().apply {
+                            put("userEnteredFormat", JSONObject().apply {
+                                put("backgroundColor", bgColor)
+                                put("textFormat", JSONObject().apply {
+                                    put("bold", false)
+                                    put("fontSize", 10)
+                                    put("foregroundColor", JSONObject().apply {
+                                        put("red", 0.08f)
+                                        put("green", 0.10f)
+                                        put("blue", 0.14f)
+                                    })
+                                })
+                                put("wrapStrategy", "WRAP")
+                                put("horizontalAlignment", "LEFT")
+                                put("verticalAlignment", "TOP")
+                            })
+                        })
+                        put("fields", "userEnteredFormat(backgroundColor,textFormat,wrapStrategy,horizontalAlignment,verticalAlignment)")
+                    })
+                })
+            }
+
+            // 3. Borders matching Device_Status card borders
             requests.put(JSONObject().apply {
-                put("repeatCell", JSONObject().apply {
+                put("updateBorders", JSONObject().apply {
                     put("range", JSONObject().apply {
                         put("sheetId", sheetId)
                         put("startRowIndex", startRow)
                         put("endRowIndex", endRow)
                         put("startColumnIndex", 0)
-                        put("endColumnIndex", 3)
-                    })
-                    put("cell", JSONObject().apply {
-                        put("userEnteredFormat", JSONObject().apply {
-                            put("horizontalAlignment", "CENTER")
-                            put("verticalAlignment", "TOP")
-                        })
-                    })
-                    put("fields", "userEnteredFormat(horizontalAlignment,verticalAlignment)")
-                })
-            })
-
-            // 3. Format Message cell: wrap text, left horizontal, top vertical
-            requests.put(JSONObject().apply {
-                put("repeatCell", JSONObject().apply {
-                    put("range", JSONObject().apply {
-                        put("sheetId", sheetId)
-                        put("startRowIndex", startRow)
-                        put("endRowIndex", endRow)
-                        put("startColumnIndex", MSG_START_COL)
                         put("endColumnIndex", MSG_END_COL)
                     })
-                    put("cell", JSONObject().apply {
-                        put("userEnteredFormat", JSONObject().apply {
-                            put("wrapStrategy", "WRAP")
-                            put("horizontalAlignment", "LEFT")
-                            put("verticalAlignment", "TOP")
+                    put("bottom", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.75f)
+                            put("green", 0.80f)
+                            put("blue", 0.85f)
                         })
                     })
-                    put("fields", "userEnteredFormat(wrapStrategy,horizontalAlignment,verticalAlignment)")
+                    put("left", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.75f)
+                            put("green", 0.80f)
+                            put("blue", 0.85f)
+                        })
+                    })
+                    put("right", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.75f)
+                            put("green", 0.80f)
+                            put("blue", 0.85f)
+                        })
+                    })
+                    put("innerHorizontal", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.88f)
+                            put("green", 0.90f)
+                            put("blue", 0.92f)
+                        })
+                    })
+                    put("innerVertical", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.88f)
+                            put("green", 0.90f)
+                            put("blue", 0.92f)
+                        })
+                    })
                 })
             })
 
@@ -615,7 +849,7 @@ object GoogleSheetsManager {
                 .build()
 
             httpClient.newCall(batchReq).execute().close()
-            Log.d(TAG, "Applied row merge and formatting for rows $startRow to $endRow")
+            Log.d(TAG, "Applied zebra styling, borders, and row merge for rows $startRow to $endRow")
         } catch (e: Exception) {
             Log.e(TAG, "Error applying row merge formatting", e)
         }

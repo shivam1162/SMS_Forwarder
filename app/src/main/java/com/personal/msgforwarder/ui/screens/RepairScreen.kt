@@ -61,6 +61,10 @@ fun RepairScreen(
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
     val isIgnoringBatteryOptimizations = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
 
+    val sheetName = remember(prefs.googleAccountEmail) {
+        GoogleSheetsManager.resolveSpreadsheetName(prefs.googleAccountEmail)
+    }
+
     val scrollState = rememberScrollState()
 
     // Refresh state when returning to foreground
@@ -303,7 +307,7 @@ fun RepairScreen(
                 ) {
                     if (isRepairingSettings) {
                         CircularProgressIndicator(
-                            color = DeepBlack,
+                            color = PaletteDeepBlack,
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(18.dp)
                         )
@@ -311,7 +315,7 @@ fun RepairScreen(
                         Text(
                             text = "Repair Settings Now",
                             fontWeight = FontWeight.SemiBold,
-                            color = DeepBlack,
+                            color = PaletteDeepBlack,
                             fontSize = 13.sp
                         )
                     }
@@ -376,7 +380,7 @@ fun RepairScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Send an SMS with text 'REPORT' to this phone from anywhere. The app immediately collects hardware vitals and appends them to the 'Device_Status' tab in SUPERAPP_SHEET.",
+                    text = "Send an SMS with text 'REPORT' to this phone from anywhere. The app immediately collects hardware vitals and appends them to the 'Device_Status' tab in $sheetName.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     fontSize = 12.sp,
@@ -521,7 +525,7 @@ fun RepairScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "SUPERAPP_SHEET Self-Healing",
+                    text = "$sheetName Self-Healing",
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = TextPrimary
@@ -545,10 +549,10 @@ fun RepairScreen(
                         }
                         scope.launch {
                             isHealing = true
-                            val result = GoogleSheetsManager.getOrCreateSpreadsheet(context)
+                            val result = GoogleSheetsManager.getOrCreateSpreadsheet(context, forceFormat = true)
                             isHealing = false
                             if (result.isSuccess) {
-                                Toast.makeText(context, "SUPERAPP_SHEET verified & healthy", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "$sheetName verified & healthy", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(context, "Repair error: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                             }

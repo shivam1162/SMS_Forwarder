@@ -9,6 +9,8 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.personal.msgforwarder.MainActivity
+import com.personal.msgforwarder.data.PreferencesHelper
+import com.personal.msgforwarder.data.google.GoogleSheetsManager
 
 /**
  * Helper for creating notification channels and showing backup notifications.
@@ -24,49 +26,57 @@ object NotificationHelper {
      */
     fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(NotificationManager::class.java)
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+            // Backup Status Channel (Low priority, quiet)
             val statusChannel = NotificationChannel(
                 CHANNEL_STATUS,
                 "Backup Status",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Status notifications for SMS Google Sheets backup"
+                description = "Shows notifications when messages are backed up"
+                setShowBadge(false)
             }
+            nm.createNotificationChannel(statusChannel)
 
+            // Auth Recovery Channel (High priority, alert user to re-authenticate)
             val authChannel = NotificationChannel(
                 CHANNEL_AUTH,
-                "Google Account Alerts",
+                "Action Required",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Alerts when Google account requires re-authentication"
+                description = "Alerts when Google re-authentication is required"
+                setShowBadge(true)
+                enableVibration(true)
             }
-
-            manager.createNotificationChannel(statusChannel)
-            manager.createNotificationChannel(authChannel)
+            nm.createNotificationChannel(authChannel)
         }
     }
 
     /**
-     * Shows a high-priority actionable notification when Google requires re-authentication.
+     * Shows a high-priority actionable notification when Google OAuth needs user re-consent.
+     * Tapping the notification opens MainActivity so the user can re-authenticate.
      */
     fun showAuthRecoveryNotification(context: Context, recoveryIntent: Intent?) {
-        val targetIntent = recoveryIntent ?: Intent(context, MainActivity::class.java).apply {
+        val tapIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            1001,
-            targetIntent,
+            2001,
+            recoveryIntent ?: tapIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_AUTH)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("Google Sign-In Required")
-            .setContentText("Tap to re-authenticate Google account so SMS backup can continue.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Google requires you to re-authenticate or confirm permissions. Tap here to resume automatic SMS backup."))
+            .setContentTitle("SMS Backup: Action Required")
+            .setContentText("Tap to re-authorize Google Drive access for SMS backup")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("Google Drive access needs re-authorization. Tap to restore automatic SMS backups.")
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -75,7 +85,7 @@ object NotificationHelper {
         try {
             NotificationManagerCompat.from(context).notify(2001, notification)
         } catch (e: SecurityException) {
-            // Silently ignore
+            e.printStackTrace()
         }
     }
 
@@ -83,8 +93,9 @@ object NotificationHelper {
      * Shows a notification when a message is backed up.
      */
     fun showBackupNotification(context: Context, sender: String, count: Int = 1) {
+        val sheetName = GoogleSheetsManager.resolveSpreadsheetName(PreferencesHelper(context).googleAccountEmail)
         val title = if (count == 1) "SMS Backed Up" else "$count Messages Backed Up"
-        val message = "Backed up to Google Sheet 'SUPERAPP_SHEET' from $sender"
+        val message = "Backed up to Google Sheet '$sheetName' from $sender"
 
         val notification = NotificationCompat.Builder(context, CHANNEL_STATUS)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -97,7 +108,7 @@ object NotificationHelper {
         try {
             NotificationManagerCompat.from(context).notify(notificationId++, notification)
         } catch (e: SecurityException) {
-            // Notification permission not granted — silently ignore
+            e.printStackTrace()
         }
     }
 }
