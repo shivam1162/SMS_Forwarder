@@ -103,11 +103,11 @@ flowchart TD
 | File | Path | Description & Purpose |
 |---|---|---|
 | **`MainActivity.kt`** | `.../MainActivity.kt` | Single activity host. Configures dark system theme, requests runtime SMS and notification permissions, and sets Compose content to `AppTheme { AppNavigation() }`. |
-| **`HomeScreen.kt`** | `.../ui/screens/HomeScreen.kt` | Primary dashboard. Features real-time backup toggle switch, Google account status card (connected account email, Google Sheet link button, last synced relative time), AES-256 Encryption toggle with masked secret key management dialog, and battery optimization warning banner with one-tap whitelist intent. Uses `.statusBarsPadding()` and scrollable container for compatibility across device sizes. |
+| **`HomeScreen.kt`** | `.../ui/screens/HomeScreen.kt` | Primary dashboard. Features real-time backup toggle switch, Google account status card (connected account email, Google Sheet link button, last synced relative time), and battery optimization warning banner with one-tap whitelist intent. Uses `.statusBarsPadding()` and scrollable container for compatibility across device sizes. |
 | **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses "SuperApp" branding, component links (SMS Backup, Repair, Setting), and developer credits ("Created by SHIVAM GUPTA") pinned at bottom. |
 | **`AppNavigation.kt`** | `.../ui/AppNavigation.kt` | Root SuperApp navigation container hosting `ModalNavigationDrawer`, state routing (`AppScreen`), and dynamic component switching. |
 | **`RepairScreen.kt`** | `.../ui/screens/RepairScreen.kt` | Repair and diagnostics component. Provides cloud sheet verification & self-healing, pending local message queue flush, and battery whitelist health. |
-| **`SettingsScreen.kt`** | `.../ui/screens/SettingsScreen.kt` | SuperApp settings component. Manages connected Google account, auto-sync preferences, and system metadata. |
+| **`SettingsScreen.kt`** | `.../ui/screens/SettingsScreen.kt` | SuperApp settings component. Manages connected Google account, auto-sync preferences, client-side AES-256-GCM encryption toggle with secret key management dialog, and system metadata. |
 | **`Color.kt`** | `.../ui/theme/Color.kt` | Premium dark luxury palette: `DeepBlack` (`#0A0B0D`), `SurfaceDark` (`#121418`), `SurfaceElevated` (`#181B20`), `BorderSubtle` (`#22262E`), `AccentEmerald` (`#10B981`), `AccentAmber`, and typography tones. |
 | **`Theme.kt`** | `.../ui/theme/Theme.kt` | Material3 dark color scheme mapping typography and surfaces to modern AMOLED aesthetics. |
 
