@@ -1,12 +1,57 @@
 package com.personal.msgforwarder.ui
 
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.personal.msgforwarder.data.PreferencesHelper
+import com.personal.msgforwarder.ui.components.AppDrawerContent
 import com.personal.msgforwarder.ui.screens.HomeScreen
+import kotlinx.coroutines.launch
 
 /**
- * App navigation hosting the single-screen SMS Backup UI.
+ * SuperApp Component Destinations.
+ */
+enum class AppScreen {
+    SMS_BACKUP
+}
+
+/**
+ * App navigation hosting SuperApp drawer and active component screens.
  */
 @Composable
 fun AppNavigation() {
-    HomeScreen()
+    val context = LocalContext.current
+    val prefs = remember { PreferencesHelper(context) }
+    val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    var currentScreen by remember { mutableStateOf(AppScreen.SMS_BACKUP) }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        scrimColor = Color.Black.copy(alpha = 0.65f),
+        drawerContent = {
+            AppDrawerContent(
+                prefs = prefs,
+                currentScreen = currentScreen,
+                onSelectScreen = { screen ->
+                    currentScreen = screen
+                    scope.launch { drawerState.close() }
+                }
+            )
+        }
+    ) {
+        when (currentScreen) {
+            AppScreen.SMS_BACKUP -> {
+                HomeScreen(
+                    onOpenDrawer = {
+                        scope.launch { drawerState.open() }
+                    }
+                )
+            }
+        }
+    }
 }
