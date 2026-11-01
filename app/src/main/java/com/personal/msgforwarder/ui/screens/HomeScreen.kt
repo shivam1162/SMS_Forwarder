@@ -710,35 +710,7 @@ fun HomeScreen() {
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
 
-            // Privacy & Architecture Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = SurfaceElevated),
-                border = BorderStroke(1.dp, BorderSubtle)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp)
-                ) {
-                    Text(
-                        text = "Direct Sync Architecture",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Incoming messages are securely transmitted directly to your private Google Sheet via TLS and are never stored on this device.",
-                        fontSize = 12.sp,
-                        color = TextSecondary,
-                        lineHeight = 18.sp
-                    )
-                }
-            }
         }
     }
 }
