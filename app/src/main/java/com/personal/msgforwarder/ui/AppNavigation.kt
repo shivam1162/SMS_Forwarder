@@ -8,9 +8,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.ui.components.AppDrawerContent
-import com.personal.msgforwarder.ui.screens.HomeScreen
 import com.personal.msgforwarder.ui.screens.RepairScreen
 import com.personal.msgforwarder.ui.screens.SettingsScreen
+import com.personal.msgforwarder.ui.screens.SmsBackupScreen
 import kotlinx.coroutines.launch
 
 /**
@@ -50,7 +50,7 @@ fun AppNavigation() {
     ) {
         when (currentScreen) {
             AppScreen.SMS_BACKUP -> {
-                HomeScreen(
+                SmsBackupScreen(
                     onOpenDrawer = {
                         scope.launch { drawerState.open() }
                     }

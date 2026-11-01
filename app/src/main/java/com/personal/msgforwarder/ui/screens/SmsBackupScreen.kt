@@ -41,7 +41,7 @@ import com.personal.msgforwarder.worker.BackupSyncWorker
 import kotlinx.coroutines.launch
 
 @Composable
-fun HomeScreen(
+fun SmsBackupScreen(
     onOpenDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
