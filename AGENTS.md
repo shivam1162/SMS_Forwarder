@@ -7,13 +7,15 @@
 
 ## 1. What This App Does
 
-**SuperApp** is a lightweight, privacy-first Android application designed for family caregivers and elderly support. It features two core utilities:
+**SuperApp** is a lightweight, privacy-first Android application designed for family caregivers and elderly support. It features three core utilities:
 1. **SMS Backup**: Automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`SUPERAPP_SHEET`) in the user's personal Google Drive account.
 2. **Remote Device Diagnostics ("REPORT")**: Allows caregivers to remotely check phone vitals (battery, DND status, ringer mode & volume, screen brightness, Wi-Fi, cellular, Bluetooth, GPS) simply by sending an SMS with keyword `REPORT` to the device. The app compiles an instant snapshot and uploads it to a dedicated `Device_Status` tab in the user's spreadsheet.
+3. **Auto-Repair Phone Settings ("REPAIR" / "FIX")**: Allows caregivers or elderly users to instantly repair altered/silenced device settings (turn OFF DND, set ringer to NORMAL, set ringtone & alarm volume to 100%, voice call to 100%, media volume to 50%, screen brightness to 80% manual, and turn OFF Bluetooth) via a single button tap or remotely by sending an SMS with keyword `REPAIR` or `FIX`. Immediately uploads updated diagnostics confirming the repair to Google Sheets.
 
 ### Key Capabilities:
 - **Direct-to-Drive Sync (No Third-Party Servers)**: Communicates directly with Google Drive API v3 and Google Sheets API v4 using official Google OAuth 2.0 tokens (`https://www.googleapis.com/auth/drive.file` and `https://www.googleapis.com/auth/spreadsheets`).
 - **Remote Diagnostics On-Demand**: Triggered automatically upon receiving an SMS containing `REPORT` (case-insensitive) or manually via the Repair screen. No persistent socket or battery drain required.
+- **Remote & Local Phone Recovery**: Triggered by SMS `REPAIR` or `FIX`, or via the one-tap button in the Repair screen.
 - **Zero Idle Battery Consumption**: Operates on an event-driven architecture with manifest-registered broadcast receivers. No persistent background services run while idle, keeping standby battery drain at 0%.
 - **Client-Side AES-256-GCM Encryption**: Optional cryptographic layer enabling users to set a custom secret key passphrase. All SMS message content is encrypted with 256-bit AES-GCM before leaving the device. Date, time, and sender remain plain text for readability in the sheet.
 - **Lightning-Fast Ingestion (<50ms)**: Incoming SMS messages are immediately written to a local SQLite database in under 20ms to guarantee zero message loss even if the device reboots, loses connectivity, or enters Android Doze mode.
@@ -31,11 +33,16 @@
 ```mermaid
 flowchart TD
     SMS[Incoming SMS] -->|SMS_RECEIVED| BR[SmsBroadcastReceiver]
-    BR -->|Check Remote Command| RepCheck{Body == 'REPORT'?}
-    RepCheck -->|Yes| Diag[DeviceReportHelper.collectDiagnostics]
-    Diag --> RepUpload[GoogleSheetsManager.appendDeviceReport -> Device_Status Tab]
     
-    BR -->|Check 5s Duplicate| DupCheck{Duplicate SMS?}
+    BR -->|Check Remote Commands| CmdCheck{Command Type?}
+    CmdCheck -->|'REPAIR' or 'FIX'| Repair[DeviceRepairHelper.executeRepair]
+    Repair --> DiagUpdate[DeviceReportHelper.collectDiagnostics]
+    DiagUpdate --> RepUpload[GoogleSheetsManager.appendDeviceReport -> Device_Status Tab]
+    
+    CmdCheck -->|'REPORT'| Diag[DeviceReportHelper.collectDiagnostics]
+    Diag --> RepUpload
+    
+    CmdCheck -->|Standard SMS| DupCheck{Duplicate SMS?}
     DupCheck -->|Yes| Drop[Drop Broadcast Duplicate]
     DupCheck -->|No| DB[(Local SQLite Queue)]
     
@@ -75,7 +82,7 @@ flowchart TD
 | `app/build.gradle.kts` | `/app/build.gradle.kts` | App-level Gradle build file. Configures compileSdk 35, minSdk 26, Jetpack Compose BOM, Google Play Services Auth, OkHttp 4, WorkManager, R8 minification (`isMinifyEnabled = true`, `isShrinkResources = true`), and debug keystore signing. |
 | `app/proguard-rules.pro` | `/app/proguard-rules.pro` | Custom R8/ProGuard rules preserving reflection constructors for WorkManager workers, OkHttp internal components, and Google Play Services Auth models. |
 | `app/debug.keystore` | `/app/debug.keystore` | Bundled debug keystore ensuring deterministic SHA-1 (`94:D9:C2:FD:B0:5A:EF:0D:69:20:04:2B:06:5E:9D:10:E2:64:93:90`) across all developer workstations and GitHub Actions CI. |
-| `AndroidManifest.xml` | `/app/src/main/AndroidManifest.xml` | Declares application permissions (`RECEIVE_SMS`, `READ_SMS`, `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `BLUETOOTH`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), registers `SmsBroadcastReceiver` with high priority 999, and registers `BootReceiver`. |
+| `AndroidManifest.xml` | `/app/src/main/AndroidManifest.xml` | Declares application permissions (`RECEIVE_SMS`, `READ_SMS`, `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `BLUETOOTH`, `BLUETOOTH_ADMIN`, `MODIFY_AUDIO_SETTINGS`, `ACCESS_NOTIFICATION_POLICY`, `WRITE_SETTINGS`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), registers `SmsBroadcastReceiver` with high priority 999, and registers `BootReceiver`. |
 | `.github/workflows/build.yml` | `/.github/workflows/build.yml` | GitHub Actions CI/CD workflow triggering on pushes to `main` and `superapp`. Builds `assembleRelease` with JDK 17 and Gradle 8.9, producing optimized APK releases. |
 
 ---
@@ -97,10 +104,11 @@ flowchart TD
 
 | File | Path | Description & Purpose |
 |---|---|---|
-| **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Intercepts `REPORT` command to generate and upload remote diagnostics; saves SMS to SQLite (<20ms); triggers `SyncManager.performSync()` capped at a 10s timeout. Hands off to WorkManager if offline or timed out. |
+| **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Intercepts `REPORT` command to generate and upload diagnostics, intercepts `REPAIR`/`FIX` to reset phone settings and upload confirmed status; saves SMS to SQLite (<20ms); triggers `SyncManager.performSync()` capped at 10s timeout. Hands off to WorkManager if offline or timed out. |
 | **`BootReceiver.kt`** | `.../receiver/BootReceiver.kt` | Manifest-registered receiver for `BOOT_COMPLETED`. Fires on device restart to verify if unsynced messages exist in SQLite; immediately enqueues `BackupSyncWorker` if needed. |
 | **`BackupSyncWorker.kt`** | `.../worker/BackupSyncWorker.kt` | `CoroutineWorker` scheduled via WorkManager (`ExistingWorkPolicy.KEEP`). Delegates cleanly to `SyncManager.performSync()` to guarantee background delivery with exponential backoff retries without interrupting in-flight requests. |
 | **`DeviceReportHelper.kt`** | `.../util/DeviceReportHelper.kt` | Gathers hardware and OS vitals: battery percentage & charging status, sound & ringer mode, Do Not Disturb (DND) status, screen brightness, Wi-Fi, cellular data, airplane mode, Bluetooth, and GPS location. |
+| **`DeviceRepairHelper.kt`** | `.../util/DeviceRepairHelper.kt` | Executes automated recovery: turns off DND, sets ringer mode to NORMAL, sets ringtone & alarm volume to 100%, call volume to 100%, media volume to 50%, screen brightness to 80% manual, and turns off Bluetooth. Checks for `ACCESS_NOTIFICATION_POLICY` and `WRITE_SETTINGS`. |
 | **`CryptoHelper.kt`** | `.../util/CryptoHelper.kt` | Native Android cryptographic utility (`javax.crypto`). Implements authenticated **AES-256-GCM** encryption with PBKDF2/SHA-256 key derivation (256-bit key) and cryptographically secure 12-byte random IVs per message. Prepends `ENC:` prefix to generated base64 payloads. |
 | **`NotificationHelper.kt`** | `.../util/NotificationHelper.kt` | Creates and manages Android notification channels (`sms_backup_channel`, `auth_recovery_channel`). Builds high-priority actionable notifications for Google OAuth recovery, permission alerts, and sync status. |
 
@@ -114,7 +122,7 @@ flowchart TD
 | **`SmsBackupScreen.kt`** | `.../ui/screens/SmsBackupScreen.kt` | SMS Backup component screen. Features real-time backup toggle switch, Google account status card (connected account email, Google Sheet link button, last synced relative time), and battery optimization warning banner with one-tap whitelist intent. Uses `.statusBarsPadding()` and scrollable container for compatibility across device sizes. |
 | **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses "SuperApp" branding, component links (SMS Backup, Repair, Setting), and developer credits ("Created by SHIVAM GUPTA") pinned at bottom. |
 | **`AppNavigation.kt`** | `.../ui/AppNavigation.kt` | Root SuperApp navigation container hosting `ModalNavigationDrawer`, state routing (`AppScreen`), and dynamic component switching. |
-| **`RepairScreen.kt`** | `.../ui/screens/RepairScreen.kt` | Repair and diagnostics component. Houses Remote Device Report card (SMS 'REPORT' command explanation, live vitals snapshot, and manual test button), cloud sheet verification & self-healing, pending local queue flush, and battery whitelist health. |
+| **`RepairScreen.kt`** | `.../ui/screens/RepairScreen.kt` | Repair & diagnostics hub. Houses Phone Settings Auto-Repair card (one-tap execution + `SMS: REPAIR` explanation + permission setup helper), Remote Device Report card (`SMS: REPORT` + live vitals snapshot), cloud spreadsheet self-healing, local queue flush, and battery whitelist health. |
 | **`SettingsScreen.kt`** | `.../ui/screens/SettingsScreen.kt` | SuperApp settings component. Manages connected Google account, auto-sync preferences, client-side AES-256-GCM encryption toggle with secret key management dialog, and system metadata. |
 | **`Color.kt`** | `.../ui/theme/Color.kt` | Premium dark luxury palette: `DeepBlack` (`#0A0B0D`), `SurfaceDark` (`#121418`), `SurfaceElevated` (`#181B20`), `BorderSubtle` (`#22262E`), `AccentEmerald` (`#10B981`), `AccentAmber`, and typography tones. |
 | **`Theme.kt`** | `.../ui/theme/Theme.kt` | Material3 dark color scheme mapping typography and surfaces to modern AMOLED aesthetics. |

@@ -23,6 +23,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.data.google.GoogleSheetsManager
 import com.personal.msgforwarder.data.local.MessageDbHelper
@@ -30,6 +33,7 @@ import com.personal.msgforwarder.sync.SyncManager
 import com.personal.msgforwarder.ui.components.HamburgerMenuIcon
 import com.personal.msgforwarder.ui.theme.*
 import com.personal.msgforwarder.util.DeviceDiagnostics
+import com.personal.msgforwarder.util.DeviceRepairHelper
 import com.personal.msgforwarder.util.DeviceReportHelper
 import kotlinx.coroutines.launch
 
@@ -41,21 +45,39 @@ fun RepairScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { PreferencesHelper(context) }
     val dbHelper = remember { MessageDbHelper.getInstance(context) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var isHealing by remember { mutableStateOf(false) }
     var isSyncing by remember { mutableStateOf(false) }
     var isGeneratingReport by remember { mutableStateOf(false) }
+    var isRepairingSettings by remember { mutableStateOf(false) }
     var pendingCount by remember { mutableStateOf(dbHelper.getPendingCount()) }
     var lastReportTime by remember { mutableStateOf(prefs.lastReportTimestamp) }
     var liveDiagnostics by remember { mutableStateOf<DeviceDiagnostics?>(null) }
+
+    var hasDndPermission by remember { mutableStateOf(DeviceRepairHelper.canModifyDnd(context)) }
+    var hasWriteSettingsPermission by remember { mutableStateOf(DeviceRepairHelper.canModifyBrightness(context)) }
 
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
     val isIgnoringBatteryOptimizations = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
 
     val scrollState = rememberScrollState()
 
-    LaunchedEffect(Unit) {
-        liveDiagnostics = DeviceReportHelper.collectDiagnostics(context)
+    // Refresh state when returning to foreground
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasDndPermission = DeviceRepairHelper.canModifyDnd(context)
+                hasWriteSettingsPermission = DeviceRepairHelper.canModifyBrightness(context)
+                liveDiagnostics = DeviceReportHelper.collectDiagnostics(context)
+                pendingCount = dbHelper.getPendingCount()
+                lastReportTime = prefs.lastReportTimestamp
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     Column(
@@ -103,7 +125,203 @@ fun RepairScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Card 1: Remote Device Status Report ("REPORT" Command)
+        // Card 1: Phone Settings Auto-Repair
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(AccentEmerald)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "AUTO-REPAIR",
+                            fontWeight = FontWeight.SemiBold,
+                            color = AccentEmerald,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp
+                        )
+                    }
+
+                    Surface(
+                        color = SurfaceElevated,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, BorderSubtle)
+                    ) {
+                        Text(
+                            text = "SMS: REPAIR",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentEmerald,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Repair Phone Settings",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Resets device vitals if accidentally silenced or altered: turns OFF DND, restores normal ringer mode, maxes ringtone & alarm (100%), sets media (50%), brightness (80%), and disables Bluetooth.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+
+                // Permission Warning & Setup Banners
+                if (!hasDndPermission || !hasWriteSettingsPermission) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = SurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, AccentAmber.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = "SETUP PERMISSIONS REQUIRED",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentAmber,
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Android requires explicit authorization to allow an app to turn off DND and set screen brightness.",
+                                fontSize = 11.sp,
+                                color = TextSecondary,
+                                lineHeight = 15.sp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            if (!hasDndPermission) {
+                                Button(
+                                    onClick = {
+                                        try {
+                                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Cannot open DND settings", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, BorderSubtle)
+                                ) {
+                                    Text(
+                                        text = "Grant DND Policy Access",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextPrimary
+                                    )
+                                }
+                                if (!hasWriteSettingsPermission) Spacer(modifier = Modifier.height(6.dp))
+                            }
+
+                            if (!hasWriteSettingsPermission) {
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Cannot open Write Settings", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, BorderSubtle)
+                                ) {
+                                    Text(
+                                        text = "Grant Write Settings (Brightness)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isRepairingSettings = true
+                            val summary = DeviceRepairHelper.executeRepair(context)
+                            val freshDiag = DeviceReportHelper.collectDiagnostics(context)
+                            liveDiagnostics = freshDiag
+
+                            // If signed in, update Google Sheets Device_Status
+                            if (prefs.isSignedIn) {
+                                GoogleSheetsManager.appendDeviceReport(context, freshDiag)
+                                lastReportTime = prefs.lastReportTimestamp
+                            }
+
+                            isRepairingSettings = false
+                            Toast.makeText(
+                                context,
+                                "Repair applied: Ring 100%, DND OFF, Brightness 80%",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    enabled = !isRepairingSettings,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    if (isRepairingSettings) {
+                        CircularProgressIndicator(
+                            color = DeepBlack,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "Repair Settings Now",
+                            fontWeight = FontWeight.SemiBold,
+                            color = DeepBlack,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Card 2: Remote Diagnostics Snapshot ("REPORT" Command)
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -158,7 +376,7 @@ fun RepairScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Send an SMS with text 'REPORT' to this phone from anywhere. The app immediately collects hardware status (battery, DND, volume, brightness, connectivity) and appends it to the 'Device_Status' tab in SUPERAPP_SHEET.",
+                    text = "Send an SMS with text 'REPORT' to this phone from anywhere. The app immediately collects hardware vitals and appends them to the 'Device_Status' tab in SUPERAPP_SHEET.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     fontSize = 12.sp,
@@ -247,12 +465,13 @@ fun RepairScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(46.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald),
-                    shape = RoundedCornerShape(12.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, BorderSubtle)
                 ) {
                     if (isGeneratingReport) {
                         CircularProgressIndicator(
-                            color = DeepBlack,
+                            color = TextPrimary,
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(18.dp)
                         )
@@ -260,7 +479,7 @@ fun RepairScreen(
                         Text(
                             text = "Generate & Upload Report Now",
                             fontWeight = FontWeight.SemiBold,
-                            color = DeepBlack,
+                            color = TextPrimary,
                             fontSize = 13.sp
                         )
                     }
@@ -270,7 +489,7 @@ fun RepairScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 2: Google Sheet Self-Healing
+        // Card 3: Google Sheet Self-Healing
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -304,7 +523,7 @@ fun RepairScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Verifies the cloud spreadsheet existence, auto-repairs missing tabs ('Messages' and 'Device_Status'), and restores formatting.",
+                    text = "Verifies cloud spreadsheet existence, auto-repairs missing tabs ('Messages' and 'Device_Status'), and restores formatting.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     fontSize = 12.sp,
@@ -358,7 +577,7 @@ fun RepairScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 3: Local SQLite Queue Flush
+        // Card 4: Local SQLite Queue Flush
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -457,7 +676,7 @@ fun RepairScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 4: Background & Battery Health
+        // Card 5: Background & Battery Health
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
