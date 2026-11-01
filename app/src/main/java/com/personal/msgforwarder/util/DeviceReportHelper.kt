@@ -9,6 +9,7 @@ import android.location.LocationManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.provider.Settings
 import android.util.Log
@@ -21,6 +22,7 @@ data class DeviceDiagnostics(
     val brightness: String,
     val wifi: String,
     val mobileData: String,
+    val hotspot: String,
     val airplaneMode: String,
     val bluetooth: String,
     val location: String
@@ -122,7 +124,28 @@ object DeviceReportHelper {
             Log.e(TAG, "Error reading network capabilities", e)
         }
 
-        // 6. Airplane Mode
+        // 6. Mobile Hotspot (Wi-Fi Tethering)
+        val hotspotStatus = try {
+            var isApOn = false
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            if (wifiManager != null) {
+                try {
+                    val method = wifiManager.javaClass.getDeclaredMethod("isWifiApEnabled")
+                    method.isAccessible = true
+                    isApOn = method.invoke(wifiManager) as? Boolean ?: false
+                } catch (_: Exception) {
+                    val stateMethod = wifiManager.javaClass.getDeclaredMethod("getWifiApState")
+                    stateMethod.isAccessible = true
+                    val state = stateMethod.invoke(wifiManager) as? Int ?: -1
+                    isApOn = (state == 13) // 13 = WIFI_AP_STATE_ENABLED
+                }
+            }
+            if (isApOn) "Active" else "Disabled"
+        } catch (e: Exception) {
+            "Disabled"
+        }
+
+        // 7. Airplane Mode
         val airplaneStatus = try {
             val isAirplane = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
             if (isAirplane) "ACTIVE" else "OFF"
@@ -130,7 +153,7 @@ object DeviceReportHelper {
             "Unknown"
         }
 
-        // 7. Bluetooth
+        // 8. Bluetooth
         val bluetoothStatus = try {
             val bt = BluetoothAdapter.getDefaultAdapter()
             when {
@@ -142,7 +165,7 @@ object DeviceReportHelper {
             "Disabled"
         }
 
-        // 8. GPS / Location
+        // 9. GPS / Location
         val locationStatus = try {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             val isGps = lm?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true
@@ -158,6 +181,7 @@ object DeviceReportHelper {
             brightness = brightnessStatus,
             wifi = wifiStr,
             mobileData = dataStr,
+            hotspot = hotspotStatus,
             airplaneMode = airplaneStatus,
             bluetooth = bluetoothStatus,
             location = locationStatus

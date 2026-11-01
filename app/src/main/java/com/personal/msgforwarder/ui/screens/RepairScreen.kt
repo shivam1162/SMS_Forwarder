@@ -180,7 +180,7 @@ fun RepairScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Resets device vitals if accidentally silenced or altered: turns OFF DND, restores normal ringer mode, maxes ringtone & alarm (100%), sets media (50%), brightness (80%), and disables Bluetooth.",
+                    text = "Resets device vitals if accidentally silenced or altered: turns OFF DND, restores normal ringer mode, maxes ringtone & alarm (100%), sets media (50%), brightness (80%), disables Bluetooth, and turns OFF Mobile Hotspot.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     fontSize = 12.sp,
@@ -289,7 +289,7 @@ fun RepairScreen(
                             isRepairingSettings = false
                             Toast.makeText(
                                 context,
-                                "Repair applied: Ring 100%, DND OFF, Brightness 80%",
+                                "Repair applied: Ring 100%, DND OFF, Brightness 80%, Hotspot OFF",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
@@ -413,6 +413,11 @@ fun RepairScreen(
                             StatusRow(label = "Brightness", value = diag.brightness)
                             StatusRow(label = "Wi-Fi", value = diag.wifi)
                             StatusRow(label = "Mobile Data", value = diag.mobileData)
+                            StatusRow(
+                                label = "Mobile Hotspot",
+                                value = diag.hotspot,
+                                highlight = diag.hotspot == "Active" || diag.hotspot == "Enabled"
+                            )
                             StatusRow(label = "Airplane Mode", value = diag.airplaneMode)
                             StatusRow(label = "Bluetooth", value = diag.bluetooth)
                             StatusRow(label = "GPS Location", value = diag.location)

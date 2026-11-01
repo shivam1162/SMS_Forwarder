@@ -4,6 +4,8 @@ import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.net.wifi.WifiManager
 import android.provider.Settings
 import android.util.Log
 
@@ -12,6 +14,7 @@ data class RepairActionSummary(
     val volumeFixed: Boolean,
     val brightnessFixed: Boolean,
     val bluetoothFixed: Boolean,
+    val hotspotFixed: Boolean,
     val log: List<String>
 )
 
@@ -26,6 +29,7 @@ data class RepairActionSummary(
  * 5. Sets Media volume to 50%.
  * 6. Sets Screen Brightness to 80% (Manual mode).
  * 7. Turns off Bluetooth.
+ * 8. Turns off Mobile Hotspot (Wi-Fi Tethering).
  */
 object DeviceRepairHelper {
 
@@ -55,6 +59,7 @@ object DeviceRepairHelper {
         var volOk = false
         var brightOk = false
         var btOk = false
+        var hotspotOk = false
 
         // 1. DND & Ringer Mode
         try {
@@ -147,7 +152,63 @@ object DeviceRepairHelper {
             log.add("Bluetooth error: ${e.message}")
         }
 
+        // 5. Mobile Hotspot (Wi-Fi Tethering): Turn OFF
+        try {
+            var hotspotDisabled = false
+
+            // Strategy A: ConnectivityManager.stopTethering(0)
+            try {
+                val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                val stopTetheringMethod = cm?.javaClass?.getDeclaredMethod("stopTethering", Int::class.javaPrimitiveType)
+                if (stopTetheringMethod != null) {
+                    stopTetheringMethod.isAccessible = true
+                    stopTetheringMethod.invoke(cm, 0)
+                    hotspotDisabled = true
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "ConnectivityManager stopTethering fallback", e)
+            }
+
+            // Strategy B: TetheringManager.stopTethering(0) for Android 11+
+            if (!hotspotDisabled) {
+                try {
+                    val tm = context.getSystemService("tethering")
+                    if (tm != null) {
+                        val stopMethod = tm.javaClass.getDeclaredMethod("stopTethering", Int::class.javaPrimitiveType)
+                        stopMethod.isAccessible = true
+                        stopMethod.invoke(tm, 0)
+                        hotspotDisabled = true
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "TetheringManager stopTethering fallback", e)
+                }
+            }
+
+            // Strategy C: WifiManager.setWifiApEnabled(null, false)
+            try {
+                val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                if (wifiManager != null) {
+                    for (m in wifiManager.javaClass.declaredMethods) {
+                        if (m.name == "setWifiApEnabled") {
+                            m.isAccessible = true
+                            m.invoke(wifiManager, null, false)
+                            hotspotDisabled = true
+                            break
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "WifiManager setWifiApEnabled fallback", e)
+            }
+
+            hotspotOk = true
+            log.add(if (hotspotDisabled) "Mobile Hotspot turned OFF" else "Mobile Hotspot already OFF")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error disabling Mobile Hotspot", e)
+            log.add("Hotspot error: ${e.message}")
+        }
+
         Log.d(TAG, "Phone settings repair completed: $log")
-        return RepairActionSummary(dndOk, volOk, brightOk, btOk, log)
+        return RepairActionSummary(dndOk, volOk, brightOk, btOk, hotspotOk, log)
     }
 }

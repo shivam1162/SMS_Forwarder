@@ -19,8 +19,8 @@
 
 **SuperApp** is a lightweight, privacy-first Android application designed for family caregivers and elderly support. It features three core utilities:
 1. **SMS Backup**: Automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`SUPERAPP_SHEET`) in the user's personal Google Drive account.
-2. **Remote Device Diagnostics ("REPORT")**: Allows caregivers to remotely check phone vitals (battery, DND status, ringer mode & volume, screen brightness, Wi-Fi, cellular, Bluetooth, GPS) simply by sending an SMS with keyword `REPORT` to the device. The app compiles an instant snapshot and uploads it to a dedicated `Device_Status` tab in the user's spreadsheet.
-3. **Auto-Repair Phone Settings ("REPAIR")**: Allows caregivers or elderly users to instantly repair altered/silenced device settings (turn OFF DND, set ringer to NORMAL, set ringtone & alarm volume to 100%, voice call to 100%, media volume to 50%, screen brightness to 80% manual, and turn OFF Bluetooth) via a single button tap or remotely by sending an SMS with keyword `REPAIR`. Immediately uploads updated diagnostics confirming the repair to Google Sheets.
+2. **Remote Device Diagnostics ("REPORT")**: Allows caregivers to remotely check phone vitals (battery, DND status, ringer mode & volume, screen brightness, Wi-Fi, cellular, Mobile Hotspot, Bluetooth, GPS) simply by sending an SMS with keyword `REPORT` to the device. The app compiles an instant snapshot and uploads it to a dedicated `Device_Status` tab in the user's spreadsheet.
+3. **Auto-Repair Phone Settings ("REPAIR")**: Allows caregivers or elderly users to instantly repair altered/silenced device settings (turn OFF DND, set ringer to NORMAL, set ringtone & alarm volume to 100%, voice call to 100%, media volume to 50%, screen brightness to 80% manual, turn OFF Bluetooth, and turn OFF Mobile Hotspot) via a single button tap or remotely by sending an SMS with keyword `REPAIR`. Immediately uploads updated diagnostics confirming the repair to Google Sheets.
 
 ### Key Capabilities:
 - **Direct-to-Drive Sync (No Third-Party Servers)**: Communicates directly with Google Drive API v3 and Google Sheets API v4 using official Google OAuth 2.0 tokens (`https://www.googleapis.com/auth/drive.file` and `https://www.googleapis.com/auth/spreadsheets`).
@@ -92,7 +92,7 @@ flowchart TD
 | `app/build.gradle.kts` | `/app/build.gradle.kts` | App-level Gradle build file. Configures compileSdk 35, minSdk 26, Jetpack Compose BOM, Google Play Services Auth, OkHttp 4, WorkManager, R8 minification (`isMinifyEnabled = true`, `isShrinkResources = true`), and debug keystore signing. |
 | `app/proguard-rules.pro` | `/app/proguard-rules.pro` | Custom R8/ProGuard rules preserving reflection constructors for WorkManager workers, OkHttp internal components, and Google Play Services Auth models. |
 | `app/debug.keystore` | `/app/debug.keystore` | Bundled debug keystore ensuring deterministic SHA-1 (`94:D9:C2:FD:B0:5A:EF:0D:69:20:04:2B:06:5E:9D:10:E2:64:93:90`) across all developer workstations and GitHub Actions CI. |
-| `AndroidManifest.xml` | `/app/src/main/AndroidManifest.xml` | Declares application permissions (`RECEIVE_SMS`, `READ_SMS`, `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `BLUETOOTH`, `BLUETOOTH_ADMIN`, `MODIFY_AUDIO_SETTINGS`, `ACCESS_NOTIFICATION_POLICY`, `WRITE_SETTINGS`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), registers `SmsBroadcastReceiver` with high priority 999, and registers `BootReceiver`. |
+| `AndroidManifest.xml` | `/app/src/main/AndroidManifest.xml` | Declares application permissions (`RECEIVE_SMS`, `READ_SMS`, `INTERNET`, `ACCESS_NETWORK_STATE`, `CHANGE_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`, `BLUETOOTH`, `BLUETOOTH_ADMIN`, `MODIFY_AUDIO_SETTINGS`, `ACCESS_NOTIFICATION_POLICY`, `WRITE_SETTINGS`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), registers `SmsBroadcastReceiver` with high priority 999, and registers `BootReceiver`. |
 | `.github/workflows/build.yml` | `/.github/workflows/build.yml` | GitHub Actions CI/CD workflow triggering on pushes to `main` and `superapp`. Builds `assembleRelease` with JDK 17 and Gradle 8.9, producing optimized APK releases. |
 
 ---
@@ -117,8 +117,8 @@ flowchart TD
 | **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Intercepts `REPORT` command to generate and upload diagnostics, intercepts `REPAIR` to reset phone settings and upload confirmed status; saves SMS to SQLite (<20ms); triggers `SyncManager.performSync()` capped at 10s timeout. Hands off to WorkManager if offline or timed out. |
 | **`BootReceiver.kt`** | `.../receiver/BootReceiver.kt` | Manifest-registered receiver for `BOOT_COMPLETED`. Fires on device restart to verify if unsynced messages exist in SQLite; immediately enqueues `BackupSyncWorker` if needed. |
 | **`BackupSyncWorker.kt`** | `.../worker/BackupSyncWorker.kt` | `CoroutineWorker` scheduled via WorkManager (`ExistingWorkPolicy.KEEP`). Delegates cleanly to `SyncManager.performSync()` to guarantee background delivery with exponential backoff retries without interrupting in-flight requests. |
-| **`DeviceReportHelper.kt`** | `.../util/DeviceReportHelper.kt` | Gathers hardware and OS vitals: battery percentage & charging status, sound & ringer mode, Do Not Disturb (DND) status, screen brightness, Wi-Fi, cellular data, airplane mode, Bluetooth, and GPS location. |
-| **`DeviceRepairHelper.kt`** | `.../util/DeviceRepairHelper.kt` | Executes automated recovery: turns off DND, sets ringer mode to NORMAL, sets ringtone & alarm volume to 100%, call volume to 100%, media volume to 50%, screen brightness to 80% manual, and turns off Bluetooth. Checks for `ACCESS_NOTIFICATION_POLICY` and `WRITE_SETTINGS`. |
+| **`DeviceReportHelper.kt`** | `.../util/DeviceReportHelper.kt` | Gathers hardware and OS vitals: battery percentage & charging status, sound & ringer mode, Do Not Disturb (DND) status, screen brightness, Wi-Fi, cellular data, Mobile Hotspot (tethering), airplane mode, Bluetooth, and GPS location. |
+| **`DeviceRepairHelper.kt`** | `.../util/DeviceRepairHelper.kt` | Executes automated recovery: turns off DND, sets ringer mode to NORMAL, sets ringtone & alarm volume to 100%, call volume to 100%, media volume to 50%, screen brightness to 80% manual, turns off Bluetooth, and turns off Mobile Hotspot. Checks for `ACCESS_NOTIFICATION_POLICY` and `WRITE_SETTINGS`. |
 | **`CryptoHelper.kt`** | `.../util/CryptoHelper.kt` | Native Android cryptographic utility (`javax.crypto`). Implements authenticated **AES-256-GCM** encryption with PBKDF2/SHA-256 key derivation (256-bit key) and cryptographically secure 12-byte random IVs per message. Prepends `ENC:` prefix to generated base64 payloads. |
 | **`NotificationHelper.kt`** | `.../util/NotificationHelper.kt` | Creates and manages Android notification channels (`sms_backup_channel`, `auth_recovery_channel`). Builds high-priority actionable notifications for Google OAuth recovery, permission alerts, and sync status. |
 
@@ -151,19 +151,25 @@ All data is organized within the user's `SUPERAPP_SHEET` spreadsheet across two 
 | **C** | Sender | 140 px | Center aligned, Middle | Originating address / sender name |
 | **D to CW** | Message Content | 100 merged cells | Left aligned, Top, Text Wrap (`WRAP`) | Plain text or `ENC:<Base64>` AES-256 payload |
 
-### Tab 2: `Device_Status` (Remote Hardware Diagnostics)
-| Column | Header | Width | Formatting | Content |
-|---|---|---|---|---|
-| **A** | Date & Time | 170 px | Center aligned, Middle | `dd-MM-yyyy hh:mm:ss a` |
-| **B** | Battery | 140 px | Center aligned, Middle | Level % and state (e.g. `85% (Charging)`) |
-| **C** | Sound / Ringer | 190 px | Center aligned, Middle | Ringer mode & volume (e.g. `Mode: NORMAL (Vol: 5/7)`) |
-| **D** | DND Mode | 150 px | Center aligned, Middle | Interruption status (e.g. `OFF`, `ON (Total Silence)`) |
-| **E** | Brightness | 130 px | Center aligned, Middle | Screen brightness % and mode (e.g. `65% (Adaptive)`) |
-| **F** | Wi-Fi | 120 px | Center aligned, Middle | Status (`Connected` or `Disconnected`) |
-| **G** | Mobile Data | 150 px | Center aligned, Middle | Status (`Active (Cellular)` or `Disconnected`) |
-| **H** | Airplane Mode | 130 px | Center aligned, Middle | Status (`OFF` or `ACTIVE`) |
-| **I** | Bluetooth | 110 px | Center aligned, Middle | Status (`Enabled` or `Disabled`) |
-| **J** | GPS Location | 110 px | Center aligned, Middle | Status (`Enabled` or `Disabled`) |
+### Tab 2: `Device_Status` (Vertical Mobile-Optimized Report Cards)
+Each diagnostic snapshot is logged as an executive vertical card (12 rows tall) followed by a **2-row blank gap** before the next report:
+- **Columns**:
+  - **Column A**: Attribute Name (Width: 220 px, Bold, Dark Slate, Left aligned)
+  - **Column B**: Status / Value (Width: 280 px, Medium, Dark Charcoal, Left aligned)
+- **Report Card Anatomy**:
+  1. **Banner Header**: `DEVICE STATUS REPORT — dd-MM-yyyy hh:mm:ss a` (Merged A:B, Emerald green background, bold white text, centered)
+  2. **Row 1**: Date & Time
+  3. **Row 2**: Battery Level
+  4. **Row 3**: Sound / Ringer
+  5. **Row 4**: Do Not Disturb (DND)
+  6. **Row 5**: Screen Brightness
+  7. **Row 6**: Wi-Fi Status
+  8. **Row 7**: Mobile Data
+  9. **Row 8**: Mobile Hotspot
+  10. **Row 9**: Airplane Mode
+  11. **Row 10**: Bluetooth
+  12. **Row 11**: GPS Location
+- **Styling**: Alternating zebra striping (`#F4F6F8` vs `#FFFFFF`), subtle card borders (`#C5D0D6`), and a 2-row gap separating each check. Zero horizontal scrolling required on mobile.
 
 ---
 

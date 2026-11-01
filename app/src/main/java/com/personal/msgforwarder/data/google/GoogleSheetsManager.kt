@@ -34,17 +34,11 @@ import java.util.concurrent.TimeUnit
  * - Column C (Index 2): Sender
  * - Columns D to CW (Index 3 to 103): 100 merged cells for Full Message Content
  *
- * Tab 2: 'Device_Status'
- * - Col A: Date & Time (dd-MM-yyyy hh:mm:ss a)
- * - Col B: Battery
- * - Col C: Sound / Ringer
- * - Col D: DND Mode
- * - Col E: Brightness
- * - Col F: Wi-Fi
- * - Col G: Mobile Data
- * - Col H: Airplane Mode
- * - Col I: Bluetooth
- * - Col J: GPS Location
+ * Tab 2: 'Device_Status' (Vertical Card Layout)
+ * - Each report is formatted vertically as an executive card block:
+ *   - Banner Header: 'DEVICE STATUS REPORT — dd-MM-yyyy hh:mm:ss a' (Merged Col A & B, Emerald green)
+ *   - Attribute Rows: Parameter Name (Col A) | Current Status (Col B)
+ *   - 2 Blank Rows between successive report cards for clean separation and mobile readability.
  */
 object GoogleSheetsManager {
 
@@ -628,7 +622,7 @@ object GoogleSheetsManager {
     }
 
     /**
-     * Ensures the 'Device_Status' tab exists and has the required headers and column widths.
+     * Ensures the 'Device_Status' tab exists and applies mobile-optimized column widths.
      */
     private fun ensureDeviceStatusSheet(spreadsheetId: String, token: String): Result<Int> {
         return try {
@@ -639,32 +633,7 @@ object GoogleSheetsManager {
 
             val existingTab = tabs.find { it.title == STATUS_SHEET_TITLE }
             if (existingTab != null) {
-                // Expand columns if less than 10
-                if (existingTab.columnCount < 10) {
-                    val expandReq = JSONObject().apply {
-                        put("requests", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("updateSheetProperties", JSONObject().apply {
-                                    put("properties", JSONObject().apply {
-                                        put("sheetId", existingTab.sheetId)
-                                        put("gridProperties", JSONObject().apply {
-                                            put("columnCount", 10)
-                                            put("frozenRowCount", 1)
-                                        })
-                                    })
-                                    put("fields", "gridProperties.columnCount,gridProperties.frozenRowCount")
-                                })
-                            })
-                        })
-                    }
-                    val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
-                    val batchReq = Request.Builder()
-                        .url(batchUrl)
-                        .addHeader("Authorization", "Bearer $token")
-                        .post(expandReq.toString().toRequestBody(JSON_MEDIA_TYPE))
-                        .build()
-                    httpClient.newCall(batchReq).execute().close()
-                }
+                setDeviceStatusColumnWidths(spreadsheetId, token, existingTab.sheetId)
                 return Result.success(existingTab.sheetId)
             }
 
@@ -677,8 +646,8 @@ object GoogleSheetsManager {
                             put("properties", JSONObject().apply {
                                 put("title", STATUS_SHEET_TITLE)
                                 put("gridProperties", JSONObject().apply {
-                                    put("frozenRowCount", 1)
-                                    put("columnCount", 10)
+                                    put("columnCount", 5)
+                                    put("frozenRowCount", 0)
                                 })
                             })
                         })
@@ -710,10 +679,9 @@ object GoogleSheetsManager {
                 ?.optInt("sheetId")
                 ?: 0
 
-            // Apply emerald header and column widths
-            formatDeviceStatusHeader(spreadsheetId, token, newSheetId)
+            setDeviceStatusColumnWidths(spreadsheetId, token, newSheetId)
 
-            Log.d(TAG, "Successfully created and styled tab '$STATUS_SHEET_TITLE' (sheetId=$newSheetId)")
+            Log.d(TAG, "Successfully created tab '$STATUS_SHEET_TITLE' (sheetId=$newSheetId)")
             Result.success(newSheetId)
         } catch (e: Exception) {
             Log.e(TAG, "Error ensuring Device_Status tab", e)
@@ -722,95 +690,23 @@ object GoogleSheetsManager {
     }
 
     /**
-     * Styles the 'Device_Status' header row in Emerald green and sets custom column widths.
+     * Sets column widths for vertical card layout: Col A (Attribute)=220px, Col B (Status)=280px.
      */
-    private fun formatDeviceStatusHeader(spreadsheetId: String, token: String, sheetId: Int) {
+    private fun setDeviceStatusColumnWidths(spreadsheetId: String, token: String, sheetId: Int) {
         try {
-            // 1. Write header text
-            val headers = JSONArray().apply {
-                put("Date & Time")
-                put("Battery")
-                put("Sound / Ringer")
-                put("DND Mode")
-                put("Brightness")
-                put("Wi-Fi")
-                put("Mobile Data")
-                put("Airplane Mode")
-                put("Bluetooth")
-                put("GPS Location")
-            }
-            val headerValues = JSONObject().apply {
-                put("values", JSONArray().apply {
-                    put(headers)
-                })
-            }
-            val headerUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${STATUS_SHEET_TITLE}!A1:J1?valueInputOption=USER_ENTERED"
-            val headerReq = Request.Builder()
-                .url(headerUrl)
-                .addHeader("Authorization", "Bearer $token")
-                .put(headerValues.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-            httpClient.newCall(headerReq).execute().close()
-
-            // 2. Style header row (Forest green background, white bold text, centered)
             val requests = JSONArray()
-            requests.put(JSONObject().apply {
-                put("repeatCell", JSONObject().apply {
-                    put("range", JSONObject().apply {
-                        put("sheetId", sheetId)
-                        put("startRowIndex", 0)
-                        put("endRowIndex", 1)
-                        put("startColumnIndex", 0)
-                        put("endColumnIndex", 10)
-                    })
-                    put("cell", JSONObject().apply {
-                        put("userEnteredFormat", JSONObject().apply {
-                            put("backgroundColor", JSONObject().apply {
-                                put("red", 0.082f)
-                                put("green", 0.447f)
-                                put("blue", 0.259f)
-                            })
-                            put("textFormat", JSONObject().apply {
-                                put("bold", true)
-                                put("fontSize", 11)
-                                put("foregroundColor", JSONObject().apply {
-                                    put("red", 1.0f)
-                                    put("green", 1.0f)
-                                    put("blue", 1.0f)
-                                })
-                            })
-                            put("horizontalAlignment", "CENTER")
-                            put("verticalAlignment", "MIDDLE")
-                        })
-                    })
-                    put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
-                })
-            })
-
-            // 3. Set column widths
-            val widths = listOf(
-                170, // Date & Time
-                140, // Battery
-                190, // Sound / Ringer
-                150, // DND Mode
-                130, // Brightness
-                120, // Wi-Fi
-                150, // Mobile Data
-                130, // Airplane Mode
-                110, // Bluetooth
-                110  // GPS Location
-            )
-            for (i in widths.indices) {
+            val colWidths = listOf(Pair(0, 220), Pair(1, 280))
+            for ((colIndex, width) in colWidths) {
                 requests.put(JSONObject().apply {
                     put("updateDimensionProperties", JSONObject().apply {
                         put("range", JSONObject().apply {
                             put("sheetId", sheetId)
                             put("dimension", "COLUMNS")
-                            put("startIndex", i)
-                            put("endIndex", i + 1)
+                            put("startIndex", colIndex)
+                            put("endIndex", colIndex + 1)
                         })
                         put("properties", JSONObject().apply {
-                            put("pixelSize", widths[i])
+                            put("pixelSize", width)
                         })
                         put("fields", "pixelSize")
                     })
@@ -826,12 +722,15 @@ object GoogleSheetsManager {
 
             httpClient.newCall(batchReq).execute().close()
         } catch (e: Exception) {
-            Log.e(TAG, "Error formatting Device_Status header", e)
+            Log.e(TAG, "Error setting Device_Status column widths", e)
         }
     }
 
     /**
-     * Appends a device diagnostics snapshot row to the 'Device_Status' tab.
+     * Appends a vertical diagnostic report card to the 'Device_Status' tab:
+     * - Checks if previous data exists. If yes, prepends a 2-row gap.
+     * - Top banner row: "DEVICE STATUS REPORT — dd-MM-yyyy hh:mm:ss a" (merged Col A & B, Emerald green).
+     * - 11 Attribute rows: Parameter (Col A) | Value (Col B) with zebra styling and borders.
      */
     suspend fun appendDeviceReport(
         context: Context,
@@ -856,29 +755,91 @@ object GoogleSheetsManager {
         }
         var statusSheetId = sheetIdResult.getOrThrow()
 
+        // 1. Check if sheet has existing reports or legacy horizontal layout
+        var hasExistingData = false
+        try {
+            val checkUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${STATUS_SHEET_TITLE}!A1:B1"
+            val checkReq = Request.Builder()
+                .url(checkUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .get()
+                .build()
+            val checkResp = httpClient.newCall(checkReq).execute()
+            if (checkResp.isSuccessful) {
+                val checkJson = JSONObject(checkResp.body?.string() ?: "{}")
+                val vals = checkJson.optJSONArray("values")
+                if (vals != null && vals.length() > 0) {
+                    val row0 = vals.optJSONArray(0)
+                    val a1 = row0?.optString(0, "") ?: ""
+                    val b1 = row0?.optString(1, "") ?: ""
+
+                    // If legacy horizontal header was present (B1 == "Battery")
+                    if (b1 == "Battery") {
+                        Log.d(TAG, "Detected legacy horizontal layout on '$STATUS_SHEET_TITLE'. Clearing for vertical card layout...")
+                        val clearUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${STATUS_SHEET_TITLE}!A:Z:clear"
+                        val clearReq = Request.Builder()
+                            .url(clearUrl)
+                            .addHeader("Authorization", "Bearer $token")
+                            .post("{}".toRequestBody(JSON_MEDIA_TYPE))
+                            .build()
+                        httpClient.newCall(clearReq).execute().close()
+                        hasExistingData = false
+                    } else if (a1.isNotBlank()) {
+                        hasExistingData = true
+                    }
+                }
+            }
+            checkResp.close()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error checking existing status data", e)
+        }
+
         val dateTimeFormatter = SimpleDateFormat("dd-MM-yyyy hh:mm:ss a", Locale.getDefault())
         val dateTimeStr = dateTimeFormatter.format(Date(diagnostics.timestamp))
 
-        val rowValues = JSONArray().apply {
-            put(dateTimeStr)
-            put(diagnostics.battery)
-            put(diagnostics.ringer)
-            put(diagnostics.dnd)
-            put(diagnostics.brightness)
-            put(diagnostics.wifi)
-            put(diagnostics.mobileData)
-            put(diagnostics.airplaneMode)
-            put(diagnostics.bluetooth)
-            put(diagnostics.location)
+        val attributes = listOf(
+            Pair("Date & Time", dateTimeStr),
+            Pair("Battery Level", diagnostics.battery),
+            Pair("Sound / Ringer", diagnostics.ringer),
+            Pair("Do Not Disturb (DND)", diagnostics.dnd),
+            Pair("Screen Brightness", diagnostics.brightness),
+            Pair("Wi-Fi Status", diagnostics.wifi),
+            Pair("Mobile Data", diagnostics.mobileData),
+            Pair("Mobile Hotspot", diagnostics.hotspot),
+            Pair("Airplane Mode", diagnostics.airplaneMode),
+            Pair("Bluetooth", diagnostics.bluetooth),
+            Pair("GPS Location", diagnostics.location)
+        )
+
+        val rowsArray = JSONArray()
+
+        // 2-row gap before subsequent reports
+        if (hasExistingData) {
+            rowsArray.put(JSONArray().apply { put(""); put("") })
+            rowsArray.put(JSONArray().apply { put(""); put("") })
+        }
+
+        // Header Banner row
+        rowsArray.put(JSONArray().apply {
+            put("DEVICE STATUS REPORT — $dateTimeStr")
+            put("")
+        })
+
+        // 11 Attribute rows
+        for (attr in attributes) {
+            rowsArray.put(JSONArray().apply {
+                put(attr.first)
+                put(attr.second)
+            })
         }
 
         val payload = JSONObject().apply {
-            put("range", "$STATUS_SHEET_TITLE!A:J")
+            put("range", "$STATUS_SHEET_TITLE!A:B")
             put("majorDimension", "ROWS")
-            put("values", JSONArray().apply { put(rowValues) })
+            put("values", rowsArray)
         }
 
-        val appendUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${STATUS_SHEET_TITLE}!A:J:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+        val appendUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${STATUS_SHEET_TITLE}!A:B:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
 
         var request = Request.Builder()
             .url(appendUrl)
@@ -919,7 +880,7 @@ object GoogleSheetsManager {
                 sheetIdResult = ensureDeviceStatusSheet(newSpreadsheetId, token)
                 statusSheetId = sheetIdResult.getOrDefault(0)
 
-                val retryUrl = "https://sheets.googleapis.com/v4/spreadsheets/$newSpreadsheetId/values/${STATUS_SHEET_TITLE}!A:J:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+                val retryUrl = "https://sheets.googleapis.com/v4/spreadsheets/$newSpreadsheetId/values/${STATUS_SHEET_TITLE}!A:B:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
                 val retryReq = Request.Builder()
                     .url(retryUrl)
                     .addHeader("Authorization", "Bearer $token")
@@ -942,51 +903,227 @@ object GoogleSheetsManager {
         val appendRespJson = JSONObject(response.body?.string() ?: "{}")
         response.close()
 
-        // Apply center alignment to data row
+        // Apply card formatting (Banner merge, Emerald styling, zebra rows, elegant card borders)
         val updatesObj = appendRespJson.optJSONObject("updates")
         val updatedRange = updatesObj?.optString("updatedRange", "") ?: ""
-        applyStatusRowFormatting(spreadsheetId, token, updatedRange, statusSheetId)
+        applyStatusCardFormatting(spreadsheetId, token, updatedRange, statusSheetId, hasExistingData)
 
         PreferencesHelper(context).lastReportTimestamp = System.currentTimeMillis()
-        Log.d(TAG, "Device diagnostics report successfully appended to Google Sheet")
+        Log.d(TAG, "Vertical device diagnostics report card successfully appended to Google Sheet")
         Result.success(true)
     }
 
     /**
-     * Centers data cells in the newly appended report row.
+     * Styles the vertical report card:
+     * - Merges and styles banner header across Col A & B in Emerald Green.
+     * - Alternating zebra striping on attribute rows.
+     * - Elegant border framing the report card.
      */
-    private fun applyStatusRowFormatting(
+    private fun applyStatusCardFormatting(
         spreadsheetId: String,
         token: String,
         updatedRange: String,
-        sheetTabId: Int
+        sheetTabId: Int,
+        hasGap: Boolean
     ) {
         if (updatedRange.isBlank()) return
         try {
-            val match = Regex("""!A(\d+):J(\d+)""").find(updatedRange) ?: return
-            val startRow = match.groupValues[1].toInt() - 1
+            val match = Regex("""!A(\d+):B(\d+)""").find(updatedRange) ?: return
+            val startRow = match.groupValues[1].toInt() - 1 // 0-indexed inclusive
             val endRow = match.groupValues[2].toInt()
 
-            val requests = JSONArray().apply {
-                put(JSONObject().apply {
+            val cardStartRow = if (hasGap) startRow + 2 else startRow
+            val cardEndRow = endRow
+            val bannerRow = cardStartRow
+
+            val requests = JSONArray()
+
+            // 1. Merge Header Banner across Column A and Column B
+            requests.put(JSONObject().apply {
+                put("mergeCells", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetTabId)
+                        put("startRowIndex", bannerRow)
+                        put("endRowIndex", bannerRow + 1)
+                        put("startColumnIndex", 0)
+                        put("endColumnIndex", 2)
+                    })
+                    put("mergeType", "MERGE_ALL")
+                })
+            })
+
+            // 2. Style Header Banner (Forest Green background, bold white text, centered)
+            requests.put(JSONObject().apply {
+                put("repeatCell", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetTabId)
+                        put("startRowIndex", bannerRow)
+                        put("endRowIndex", bannerRow + 1)
+                        put("startColumnIndex", 0)
+                        put("endColumnIndex", 2)
+                    })
+                    put("cell", JSONObject().apply {
+                        put("userEnteredFormat", JSONObject().apply {
+                            put("backgroundColor", JSONObject().apply {
+                                put("red", 0.082f)
+                                put("green", 0.447f)
+                                put("blue", 0.259f) // Forest green
+                            })
+                            put("textFormat", JSONObject().apply {
+                                put("bold", true)
+                                put("fontSize", 11)
+                                put("foregroundColor", JSONObject().apply {
+                                    put("red", 1.0f)
+                                    put("green", 1.0f)
+                                    put("blue", 1.0f)
+                                })
+                            })
+                            put("horizontalAlignment", "CENTER")
+                            put("verticalAlignment", "MIDDLE")
+                        })
+                    })
+                    put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
+                })
+            })
+
+            // 3. Style Attribute Rows with subtle alternating zebra striping
+            for (rowIndex in (bannerRow + 1) until cardEndRow) {
+                val isEven = (rowIndex - bannerRow) % 2 == 1
+                val bgColor = if (isEven) {
+                    JSONObject().apply {
+                        put("red", 0.96f)
+                        put("green", 0.97f)
+                        put("blue", 0.98f) // Very light slate tint
+                    }
+                } else {
+                    JSONObject().apply {
+                        put("red", 1.0f)
+                        put("green", 1.0f)
+                        put("blue", 1.0f) // Crisp white
+                    }
+                }
+
+                // Col A (Attribute Name)
+                requests.put(JSONObject().apply {
                     put("repeatCell", JSONObject().apply {
                         put("range", JSONObject().apply {
                             put("sheetId", sheetTabId)
-                            put("startRowIndex", startRow)
-                            put("endRowIndex", endRow)
+                            put("startRowIndex", rowIndex)
+                            put("endRowIndex", rowIndex + 1)
                             put("startColumnIndex", 0)
-                            put("endColumnIndex", 10)
+                            put("endColumnIndex", 1)
                         })
                         put("cell", JSONObject().apply {
                             put("userEnteredFormat", JSONObject().apply {
-                                put("horizontalAlignment", "CENTER")
+                                put("backgroundColor", bgColor)
+                                put("textFormat", JSONObject().apply {
+                                    put("bold", true)
+                                    put("fontSize", 10)
+                                    put("foregroundColor", JSONObject().apply {
+                                        put("red", 0.15f)
+                                        put("green", 0.20f)
+                                        put("blue", 0.25f)
+                                    })
+                                })
+                                put("horizontalAlignment", "LEFT")
                                 put("verticalAlignment", "MIDDLE")
                             })
                         })
-                        put("fields", "userEnteredFormat(horizontalAlignment,verticalAlignment)")
+                        put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
+                    })
+                })
+
+                // Col B (Status Value)
+                requests.put(JSONObject().apply {
+                    put("repeatCell", JSONObject().apply {
+                        put("range", JSONObject().apply {
+                            put("sheetId", sheetTabId)
+                            put("startRowIndex", rowIndex)
+                            put("endRowIndex", rowIndex + 1)
+                            put("startColumnIndex", 1)
+                            put("endColumnIndex", 2)
+                        })
+                        put("cell", JSONObject().apply {
+                            put("userEnteredFormat", JSONObject().apply {
+                                put("backgroundColor", bgColor)
+                                put("textFormat", JSONObject().apply {
+                                    put("bold", false)
+                                    put("fontSize", 10)
+                                    put("foregroundColor", JSONObject().apply {
+                                        put("red", 0.08f)
+                                        put("green", 0.10f)
+                                        put("blue", 0.14f)
+                                    })
+                                })
+                                put("horizontalAlignment", "LEFT")
+                                put("verticalAlignment", "MIDDLE")
+                            })
+                        })
+                        put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
                     })
                 })
             }
+
+            // 4. Card Borders
+            requests.put(JSONObject().apply {
+                put("updateBorders", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetTabId)
+                        put("startRowIndex", bannerRow)
+                        put("endRowIndex", cardEndRow)
+                        put("startColumnIndex", 0)
+                        put("endColumnIndex", 2)
+                    })
+                    put("top", JSONObject().apply {
+                        put("style", "SOLID_MEDIUM")
+                        put("color", JSONObject().apply {
+                            put("red", 0.082f)
+                            put("green", 0.447f)
+                            put("blue", 0.259f)
+                        })
+                    })
+                    put("bottom", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.75f)
+                            put("green", 0.80f)
+                            put("blue", 0.85f)
+                        })
+                    })
+                    put("left", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.75f)
+                            put("green", 0.80f)
+                            put("blue", 0.85f)
+                        })
+                    })
+                    put("right", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.75f)
+                            put("green", 0.80f)
+                            put("blue", 0.85f)
+                        })
+                    })
+                    put("innerHorizontal", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.88f)
+                            put("green", 0.90f)
+                            put("blue", 0.92f)
+                        })
+                    })
+                    put("innerVertical", JSONObject().apply {
+                        put("style", "SOLID")
+                        put("color", JSONObject().apply {
+                            put("red", 0.88f)
+                            put("green", 0.90f)
+                            put("blue", 0.92f)
+                        })
+                    })
+                })
+            })
 
             val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
             val batchReq = Request.Builder()
@@ -996,8 +1133,9 @@ object GoogleSheetsManager {
                 .build()
 
             httpClient.newCall(batchReq).execute().close()
+            Log.d(TAG, "Applied vertical card formatting for rows $bannerRow to $cardEndRow")
         } catch (e: Exception) {
-            Log.e(TAG, "Error applying status row formatting", e)
+            Log.e(TAG, "Error applying vertical status card formatting", e)
         }
     }
 }
