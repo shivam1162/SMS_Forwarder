@@ -14,10 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.personal.msgforwarder.R
@@ -68,6 +70,53 @@ fun HamburgerMenuIcon(
             end = Offset(size.width, spacing * 2.5f),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
+        )
+    }
+}
+
+/**
+ * Stylish double chevron "<<" icon for closing the side drawer.
+ */
+@Composable
+fun DoubleChevronLeftIcon(
+    modifier: Modifier = Modifier.size(18.dp),
+    color: Color = AccentEmerald
+) {
+    Canvas(modifier = modifier) {
+        val stroke = 2.2.dp.toPx()
+        val w = size.width
+        val h = size.height
+
+        // First chevron (Left)
+        val path1 = Path().apply {
+            moveTo(w * 0.44f, h * 0.18f)
+            lineTo(w * 0.14f, h * 0.5f)
+            lineTo(w * 0.44f, h * 0.82f)
+        }
+        drawPath(
+            path = path1,
+            color = color,
+            style = Stroke(
+                width = stroke,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+
+        // Second chevron (Right)
+        val path2 = Path().apply {
+            moveTo(w * 0.84f, h * 0.18f)
+            lineTo(w * 0.54f, h * 0.5f)
+            lineTo(w * 0.84f, h * 0.82f)
+        }
+        drawPath(
+            path = path2,
+            color = color,
+            style = Stroke(
+                width = stroke,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
         )
     }
 }
@@ -132,7 +181,8 @@ private fun DrawerComponentItem(
 fun AppDrawerContent(
     prefs: PreferencesHelper,
     currentScreen: AppScreen = AppScreen.SMS_BACKUP,
-    onSelectScreen: (AppScreen) -> Unit = {}
+    onSelectScreen: (AppScreen) -> Unit = {},
+    onCloseDrawer: () -> Unit = {}
 ) {
     ModalDrawerSheet(
         drawerContainerColor = SurfaceDark,
@@ -214,27 +264,33 @@ fun AppDrawerContent(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Bottom: Created by SHIVAM GUPTA
+            // Bottom: Stylish "<<" Closing Menu Button
             Surface(
-                shape = RoundedCornerShape(12.dp),
+                onClick = onCloseDrawer,
+                shape = RoundedCornerShape(14.dp),
                 color = SurfaceElevated,
                 border = BorderStroke(1.dp, BorderSubtle),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp, horizontal = 16.dp),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    DoubleChevronLeftIcon(
+                        modifier = Modifier.size(18.dp),
+                        color = AccentEmerald
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Created by SHIVAM GUPTA",
+                        text = "Close Menu",
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         color = TextPrimary,
-                        textAlign = TextAlign.Center,
-                        fontSize = 14.sp,
-                        letterSpacing = 0.5.sp
+                        fontSize = 13.sp,
+                        letterSpacing = 0.4.sp
                     )
                 }
             }

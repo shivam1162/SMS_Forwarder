@@ -25,7 +25,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * 2. Deduplicates incoming broadcast intents within a 5-second window.
  * 3. Intercepts remote 'REPORT' diagnostic command: compiles and uploads device status report
  *    (battery, sound/ringer, DND, brightness, Wi-Fi, mobile data, etc.) to Google Sheets.
- * 4. Intercepts remote 'REPAIR' / 'FIX' recovery command: resets DND to OFF, ringer to NORMAL,
+ * 4. Intercepts remote 'REPAIR' recovery command: resets DND to OFF, ringer to NORMAL,
  *    volumes (ring 100%, alarm 100%, call 100%, media 50%), brightness to 80%, turns off Bluetooth,
  *    and immediately uploads an updated status report to Google Sheets.
  * 5. Triggers SyncManager with single-flight Mutex lock to upload SMS to Google Sheets.
@@ -38,7 +38,6 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
         private const val IMMEDIATE_SYNC_TIMEOUT_MS = 10000L
         private const val REPORT_COMMAND = "REPORT"
         private const val REPAIR_COMMAND = "REPAIR"
-        private const val FIX_COMMAND = "FIX"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -64,8 +63,7 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
             it.toString().trim().equals(REPORT_COMMAND, ignoreCase = true)
         }
         val hasRepairCommand = groupedMessages.values.any {
-            val text = it.toString().trim()
-            text.equals(REPAIR_COMMAND, ignoreCase = true) || text.equals(FIX_COMMAND, ignoreCase = true)
+            it.toString().trim().equals(REPAIR_COMMAND, ignoreCase = true)
         }
 
         if (!prefs.isBackupEnabled && !hasReportCommand && !hasRepairCommand) {
@@ -109,7 +107,7 @@ class SmsBroadcastReceiver : BroadcastReceiver() {
                 // Execute remote REPAIR command if received
                 if (hasRepairCommand) {
                     try {
-                        Log.d(TAG, "Remote 'REPAIR'/'FIX' command detected. Executing phone settings recovery...")
+                        Log.d(TAG, "Remote 'REPAIR' command detected. Executing phone settings recovery...")
                         val repairSummary = DeviceRepairHelper.executeRepair(context)
                         Log.d(TAG, "Phone settings repaired: ${repairSummary.log}")
 

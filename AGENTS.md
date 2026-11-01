@@ -5,17 +5,27 @@
 
 ---
 
+## 0. Developer & Agent Workflow Rules (STRICT MANDATE)
+
+> [!CAUTION]
+> **NO GIT ADD, COMMIT, OR PUSH WITHOUT EXPLICIT PERMISSION**:
+> - **NEVER** execute `git add`, `git commit`, or `git push` autonomously or automatically.
+> - Modifying code and documentation files locally is permitted, but all changes must remain unstaged until the user explicitly reviews and grants permission to commit or push (e.g. "commit these changes", "push to origin").
+> - If git actions are needed, ask the user for confirmation first.
+
+---
+
 ## 1. What This App Does
 
 **SuperApp** is a lightweight, privacy-first Android application designed for family caregivers and elderly support. It features three core utilities:
 1. **SMS Backup**: Automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`SUPERAPP_SHEET`) in the user's personal Google Drive account.
 2. **Remote Device Diagnostics ("REPORT")**: Allows caregivers to remotely check phone vitals (battery, DND status, ringer mode & volume, screen brightness, Wi-Fi, cellular, Bluetooth, GPS) simply by sending an SMS with keyword `REPORT` to the device. The app compiles an instant snapshot and uploads it to a dedicated `Device_Status` tab in the user's spreadsheet.
-3. **Auto-Repair Phone Settings ("REPAIR" / "FIX")**: Allows caregivers or elderly users to instantly repair altered/silenced device settings (turn OFF DND, set ringer to NORMAL, set ringtone & alarm volume to 100%, voice call to 100%, media volume to 50%, screen brightness to 80% manual, and turn OFF Bluetooth) via a single button tap or remotely by sending an SMS with keyword `REPAIR` or `FIX`. Immediately uploads updated diagnostics confirming the repair to Google Sheets.
+3. **Auto-Repair Phone Settings ("REPAIR")**: Allows caregivers or elderly users to instantly repair altered/silenced device settings (turn OFF DND, set ringer to NORMAL, set ringtone & alarm volume to 100%, voice call to 100%, media volume to 50%, screen brightness to 80% manual, and turn OFF Bluetooth) via a single button tap or remotely by sending an SMS with keyword `REPAIR`. Immediately uploads updated diagnostics confirming the repair to Google Sheets.
 
 ### Key Capabilities:
 - **Direct-to-Drive Sync (No Third-Party Servers)**: Communicates directly with Google Drive API v3 and Google Sheets API v4 using official Google OAuth 2.0 tokens (`https://www.googleapis.com/auth/drive.file` and `https://www.googleapis.com/auth/spreadsheets`).
 - **Remote Diagnostics On-Demand**: Triggered automatically upon receiving an SMS containing `REPORT` (case-insensitive) or manually via the Repair screen. No persistent socket or battery drain required.
-- **Remote & Local Phone Recovery**: Triggered by SMS `REPAIR` or `FIX`, or via the one-tap button in the Repair screen.
+- **Remote & Local Phone Recovery**: Triggered by SMS `REPAIR`, or via the one-tap button in the Repair screen.
 - **Zero Idle Battery Consumption**: Operates on an event-driven architecture with manifest-registered broadcast receivers. No persistent background services run while idle, keeping standby battery drain at 0%.
 - **Client-Side AES-256-GCM Encryption**: Optional cryptographic layer enabling users to set a custom secret key passphrase. All SMS message content is encrypted with 256-bit AES-GCM before leaving the device. Date, time, and sender remain plain text for readability in the sheet.
 - **Lightning-Fast Ingestion (<50ms)**: Incoming SMS messages are immediately written to a local SQLite database in under 20ms to guarantee zero message loss even if the device reboots, loses connectivity, or enters Android Doze mode.
@@ -23,7 +33,7 @@
 - **Single-Flight Concurrency & Zero Duplication**: Centralized `SyncManager` protected by a coroutine `Mutex` prevents race conditions between immediate broadcast sync and background WorkManager jobs, guaranteeing zero duplicate uploads.
 - **Self-Healing Google Sheets Integration**: If the spreadsheet or tab is accidentally deleted, moved, or corrupted in Google Drive (HTTP 404/400), the engine automatically detects the error, re-creates `SUPERAPP_SHEET` in Drive, formats columns, merges 100 cells horizontally with text-wrapping, styles headers in emerald green, and re-uploads pending messages without dropping data.
 - **Doze & Offline Resilience**: Integrated with Android `WorkManager` for exponential backoff retries when offline, plus a built-in battery optimization whitelist flow.
-- **Premium Dark Luxury Interface**: Minimalist OLED black (`#0A0B0D`) design, zero emojis, punch-hole camera safe insets, and a left-sliding navigation drawer displaying developer credits and security settings.
+- **Premium Dark Luxury Interface**: Minimalist OLED black (`#0A0B0D`) design, zero emojis, punch-hole camera safe insets, and a left-sliding navigation drawer with stylish "<<" collapse control.
 - **Ultra-Compact APK Size**: Optimized via R8 compiler tree-shaking, dead code elimination, and resource shrinking (~3.5–4.5 MB release build).
 
 ---
@@ -35,7 +45,7 @@ flowchart TD
     SMS[Incoming SMS] -->|SMS_RECEIVED| BR[SmsBroadcastReceiver]
     
     BR -->|Check Remote Commands| CmdCheck{Command Type?}
-    CmdCheck -->|'REPAIR' or 'FIX'| Repair[DeviceRepairHelper.executeRepair]
+    CmdCheck -->|'REPAIR'| Repair[DeviceRepairHelper.executeRepair]
     Repair --> DiagUpdate[DeviceReportHelper.collectDiagnostics]
     DiagUpdate --> RepUpload[GoogleSheetsManager.appendDeviceReport -> Device_Status Tab]
     
@@ -104,7 +114,7 @@ flowchart TD
 
 | File | Path | Description & Purpose |
 |---|---|---|
-| **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Intercepts `REPORT` command to generate and upload diagnostics, intercepts `REPAIR`/`FIX` to reset phone settings and upload confirmed status; saves SMS to SQLite (<20ms); triggers `SyncManager.performSync()` capped at 10s timeout. Hands off to WorkManager if offline or timed out. |
+| **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Intercepts `REPORT` command to generate and upload diagnostics, intercepts `REPAIR` to reset phone settings and upload confirmed status; saves SMS to SQLite (<20ms); triggers `SyncManager.performSync()` capped at 10s timeout. Hands off to WorkManager if offline or timed out. |
 | **`BootReceiver.kt`** | `.../receiver/BootReceiver.kt` | Manifest-registered receiver for `BOOT_COMPLETED`. Fires on device restart to verify if unsynced messages exist in SQLite; immediately enqueues `BackupSyncWorker` if needed. |
 | **`BackupSyncWorker.kt`** | `.../worker/BackupSyncWorker.kt` | `CoroutineWorker` scheduled via WorkManager (`ExistingWorkPolicy.KEEP`). Delegates cleanly to `SyncManager.performSync()` to guarantee background delivery with exponential backoff retries without interrupting in-flight requests. |
 | **`DeviceReportHelper.kt`** | `.../util/DeviceReportHelper.kt` | Gathers hardware and OS vitals: battery percentage & charging status, sound & ringer mode, Do Not Disturb (DND) status, screen brightness, Wi-Fi, cellular data, airplane mode, Bluetooth, and GPS location. |
@@ -120,7 +130,7 @@ flowchart TD
 |---|---|---|
 | **`MainActivity.kt`** | `.../MainActivity.kt` | Single activity host. Configures dark system theme, requests runtime SMS and notification permissions, and sets Compose content to `AppTheme { AppNavigation() }`. |
 | **`SmsBackupScreen.kt`** | `.../ui/screens/SmsBackupScreen.kt` | SMS Backup component screen. Features real-time backup toggle switch, Google account status card (connected account email, Google Sheet link button, last synced relative time), and battery optimization warning banner with one-tap whitelist intent. Uses `.statusBarsPadding()` and scrollable container for compatibility across device sizes. |
-| **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses "SuperApp" branding, component links (SMS Backup, Repair, Setting), and developer credits ("Created by SHIVAM GUPTA") pinned at bottom. |
+| **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses "SuperApp" branding, component links (SMS Backup, Repair, Setting), and a stylish "<<" close menu button pinned at bottom. |
 | **`AppNavigation.kt`** | `.../ui/AppNavigation.kt` | Root SuperApp navigation container hosting `ModalNavigationDrawer`, state routing (`AppScreen`), and dynamic component switching. |
 | **`RepairScreen.kt`** | `.../ui/screens/RepairScreen.kt` | Repair & diagnostics hub. Houses Phone Settings Auto-Repair card (one-tap execution + `SMS: REPAIR` explanation + permission setup helper), Remote Device Report card (`SMS: REPORT` + live vitals snapshot), cloud spreadsheet self-healing, local queue flush, and battery whitelist health. |
 | **`SettingsScreen.kt`** | `.../ui/screens/SettingsScreen.kt` | SuperApp settings component. Manages connected Google account, auto-sync preferences, client-side AES-256-GCM encryption toggle with secret key management dialog, and system metadata. |

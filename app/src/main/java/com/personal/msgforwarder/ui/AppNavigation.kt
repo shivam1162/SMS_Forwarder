@@ -44,6 +44,9 @@ fun AppNavigation() {
                 onSelectScreen = { screen ->
                     currentScreen = screen
                     scope.launch { drawerState.close() }
+                },
+                onCloseDrawer = {
+                    scope.launch { drawerState.close() }
                 }
             )
         }
