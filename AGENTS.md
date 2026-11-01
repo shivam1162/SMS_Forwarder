@@ -1,138 +1,124 @@
-# Implementation Plan — SMS Forwarder
+# Architecture & Module Reference — SMS Backup
 
 ## Project Root: `C:\Dev\Projects\msgforwarder`
 ## Package: `com.personal.msgforwarder`
 
 ---
 
-## Agent 1: Project Scaffolding
+## 1. What This App Does
 
-Creates the Gradle build system, manifest, and project config.
+**SMS Backup** is a lightweight, privacy-first Android application that automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`msg_backup`) in the user's personal Google Drive account.
 
-### Files:
+### Key Capabilities:
+- **Direct-to-Drive Sync (No Third-Party Servers)**: Communicates directly with Google Drive API v3 and Google Sheets API v4 using official Google OAuth 2.0 tokens (`https://www.googleapis.com/auth/drive.file` and `https://www.googleapis.com/auth/spreadsheets`).
+- **Zero Idle Battery Consumption**: Operates on an event-driven architecture with manifest-registered broadcast receivers. No persistent background services run while idle, keeping standby battery drain at 0%.
+- **Client-Side AES-256-GCM Encryption**: Optional cryptographic layer enabling users to set a custom secret key passphrase. All SMS message content is encrypted with 256-bit AES-GCM before leaving the device. Date, time, and sender remain plain text for readability in the sheet.
+- **Lightning-Fast Ingestion (<50ms)**: Incoming SMS messages are immediately written to a local SQLite database in under 20ms to guarantee zero message loss even if the device reboots, loses connectivity, or enters Android Doze mode.
+- **Immediate Privacy Purge**: As soon as a message is confirmed uploaded to Google Sheets, it is immediately deleted from the local SQLite database. Messages never linger on the phone's storage.
+- **Self-Healing Google Sheets Integration**: If the spreadsheet or tab is accidentally deleted, moved, or corrupted in Google Drive (HTTP 404/400), the engine automatically detects the error, re-creates `msg_backup` in Drive, formats columns, merges 100 cells horizontally with text-wrapping, styles headers in emerald green, and re-uploads pending messages without dropping data.
+- **Doze & Offline Resilience**: Integrated with Android `WorkManager` for exponential backoff retries when offline, plus a built-in battery optimization whitelist flow.
+- **Premium Dark Luxury Interface**: Minimalist OLED black (`#0A0B0D`) design, zero emojis, punch-hole camera safe insets, and a left-sliding navigation drawer displaying developer credits and security settings.
+- **Ultra-Compact APK Size**: Optimized via R8 compiler tree-shaking, dead code elimination, and resource shrinking (~3.5–4.5 MB release build).
 
-| # | File | Purpose |
+---
+
+## 2. End-to-End Data Flow
+
+```mermaid
+flowchart TD
+    SMS[Incoming SMS] -->|SMS_RECEIVED| BR[SmsBroadcastReceiver]
+    BR -->|Synchronous Insert <20ms| DB[(Local SQLite Queue)]
+    BR --> NetCheck{Network Available?}
+    
+    NetCheck -->|Offline / Weak Signal| WM[Enqueue BackupSyncWorker]
+    NetCheck -->|Online| Sync[Fast Sync Engine <4s timeout]
+    
+    Sync --> EncCheck{AES-256 Enabled?}
+    EncCheck -->|Yes| Crypto[CryptoHelper.encrypt via AES-256-GCM]
+    EncCheck -->|No| Plain[Plain Text Body]
+    
+    Crypto --> Sheets[Google Sheets REST API]
+    Plain --> Sheets
+    
+    Sheets -->|Success HTTP 200| Purge[Purge Message from SQLite]
+    Sheets -->|HTTP 404/400 Deleted| SelfHeal[Self-Healing: Recreate Sheet & Retry]
+    Sheets -->|Timeout / Fail| WM
+    SelfHeal --> Sheets
+    
+    WM -->|Background Retry| Sync
+```
+
+---
+
+## 3. Module & File Breakdown
+
+### 3.1 Project Scaffolding & Configuration
+
+| File | Path | Description & Purpose |
 |---|---|---|
-| 1 | `settings.gradle.kts` | Declares project name, plugin repos, dependency repos |
-| 2 | `build.gradle.kts` (root) | Project-level Gradle — applies Android + Kotlin + Google Services plugins |
-| 3 | `app/build.gradle.kts` | App-level Gradle — dependencies: Compose, Firebase (Database, Messaging), WorkManager, Navigation Compose |
-| 4 | `gradle.properties` | JVM args, AndroidX opt-in, Kotlin code style |
-| 5 | `gradle/wrapper/gradle-wrapper.properties` | Gradle 8.x wrapper config |
-| 6 | `app/src/main/AndroidManifest.xml` | Permissions (RECEIVE_SMS, READ_SMS, INTERNET, POST_NOTIFICATIONS, RECEIVE_BOOT_COMPLETED, FOREGROUND_SERVICE), declares BroadcastReceivers (SMS + Boot), FcmService, MainActivity |
-| 7 | `app/proguard-rules.pro` | Empty proguard file (needed by Gradle) |
+| `build.gradle.kts` (root) | `/build.gradle.kts` | Root Gradle build configuration; defines Kotlin and Android application plugins. |
+| `settings.gradle.kts` | `/settings.gradle.kts` | Declares project name and sets up plugin/dependency repositories (Google, MavenCentral). |
+| `app/build.gradle.kts` | `/app/build.gradle.kts` | App-level Gradle build file. Configures compileSdk 35, minSdk 26, Jetpack Compose BOM, Google Play Services Auth, OkHttp 4, WorkManager, R8 minification (`isMinifyEnabled = true`, `isShrinkResources = true`), and debug keystore signing. |
+| `app/proguard-rules.pro` | `/app/proguard-rules.pro` | Custom R8/ProGuard rules preserving reflection constructors for WorkManager workers, OkHttp internal components, and Google Play Services Auth models. |
+| `app/debug.keystore` | `/app/debug.keystore` | Bundled debug keystore ensuring deterministic SHA-1 (`94:D9:C2:FD:B0:5A:EF:0D:69:20:04:2B:06:5E:9D:10:E2:64:93:90`) across all developer workstations and GitHub Actions CI. |
+| `AndroidManifest.xml` | `/app/src/main/AndroidManifest.xml` | Declares application permissions (`RECEIVE_SMS`, `READ_SMS`, `INTERNET`, `ACCESS_NETWORK_STATE`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), registers `SmsBroadcastReceiver` with high priority 999, and registers `BootReceiver`. |
+| `.github/workflows/build.yml` | `/.github/workflows/build.yml` | GitHub Actions CI/CD workflow triggering on pushes to `main`. Builds `assembleRelease` with JDK 17 and Gradle 8.9, producing optimized APK releases. |
 
 ---
 
-## Agent 2: Data Layer
+### 3.2 Data Layer (`com.personal.msgforwarder.data`)
 
-Creates Firebase helper, local preferences, and FCM token management.
-
-### Files:
-
-| # | File | Path | Purpose |
-|---|---|---|---|
-| 1 | `PreferencesHelper.kt` | `.../data/PreferencesHelper.kt` | SharedPreferences wrapper. Stores: `pairingCode`, `role` (sender/receiver), `isActive`, `fcmToken`, `partnerFcmToken`. All reads are local = zero battery cost. |
-| 2 | `FirebaseHelper.kt` | `.../data/FirebaseHelper.kt` | Singleton that handles all Firebase Realtime Database operations: `setActive(code, active)`, `pushMessage(code, sender, body, timestamp)`, `listenForMessages(code, callback)`, `writeHeartbeat(code, timestamp)`, `listenForActivation(code, callback)`. Uses path `channels/<pairingCode>/`. |
-| 3 | `FcmTokenManager.kt` | `.../data/FcmTokenManager.kt` | On app start, gets FCM token via `FirebaseMessaging.getInstance().token`. Writes it to Firebase under `channels/<code>/devices/<role>` so the other phone knows where to send pushes. |
-| 4 | `MessageData.kt` | `.../data/MessageData.kt` | Simple data class: `sender: String`, `body: String`, `timestamp: Long`. |
+| File | Path | Description & Purpose |
+|---|---|---|
+| **`MessageData.kt`** | `.../data/MessageData.kt` | Data class representing an SMS item: `id: Long`, `sender: String`, `body: String`, `timestamp: Long`, `isSynced: Boolean`, `syncedAt: Long?`. |
+| **`PreferencesHelper.kt`** | `.../data/PreferencesHelper.kt` | Thread-safe `SharedPreferences` wrapper. Manages local persistence for: Google account email and display name, active spreadsheet ID & URL, last sync timestamp, backup enabled state, AES-256 encryption state (`isEncryptionEnabled`), and secret passphrase (`encryptionKey`). Zero network or battery overhead. |
+| **`MessageDbHelper.kt`** | `.../data/local/MessageDbHelper.kt` | SQLite database helper managing table `messages`. Provides atomic transactions: synchronous insertion (`insertMessage`), retrieval of unsynced messages (`getPendingMessages`), marking messages synced, and instant row deletion (`deleteMessage`) upon upload confirmation. |
+| **`GoogleAuthManager.kt`** | `.../data/google/GoogleAuthManager.kt` | Handles Google Sign-In and OAuth 2.0 lifecycle. Requests drive/sheet scopes, parses sign-in results, and retrieves fresh bearer tokens via `GoogleAuthUtil.getToken()`. Features self-healing auth notifications when user re-consent is required (`UserRecoverableAuthException`). |
+| **`GoogleSheetsManager.kt`** | `.../data/google/GoogleSheetsManager.kt` | REST API manager using OkHttp. Manages Google Drive file searching, spreadsheet creation, header row styling (emerald background with centered bold labels), 100-cell horizontal merge (Columns D to CW) with text-wrapping, and batch row appends. Implements automated self-healing upon 404/400 errors. |
 
 ---
 
-## Agent 3: Services Layer
+### 3.3 Services & Background Workers (`receiver`, `worker`, `util`)
 
-Creates the SMS receiver, boot receiver, FCM service, and heartbeat worker.
-
-### Files:
-
-| # | File | Path | Purpose |
-|---|---|---|---|
-| 1 | `SmsBroadcastReceiver.kt` | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED`. On trigger: reads `isActive` from PreferencesHelper (local check). If active → extracts sender + body from SMS PDU → calls `FirebaseHelper.pushMessage()` → sends FCM notification to partner device. If inactive → returns immediately. **This is the core of the battery efficiency — no service, just event-driven.** |
-| 2 | `BootReceiver.kt` | `.../receiver/BootReceiver.kt` | Manifest-registered receiver for `BOOT_COMPLETED`. On phone restart → checks PreferencesHelper for `isActive`. If active, schedules heartbeat worker. That's it — the SMS receiver is manifest-registered so it auto-survives reboots. |
-| 3 | `FcmService.kt` | `.../service/FcmService.kt` | Extends `FirebaseMessagingService`. Handles two types of incoming FCM messages: (a) `type=activate` → saves `isActive=true` to PreferencesHelper, starts heartbeat worker. (b) `type=deactivate` → saves `isActive=false`, stops heartbeat. (c) `type=message` → shows a notification with sender + body (for the receiver phone). Also handles `onNewToken()` → updates token in Firebase. |
-| 4 | `HeartbeatWorker.kt` | `.../worker/HeartbeatWorker.kt` | Extends `CoroutineWorker`. Scheduled via `PeriodicWorkRequest` every 6 hours. Writes `lastSeen: System.currentTimeMillis()` to Firebase under `channels/<code>/heartbeat`. Enqueued when activated, cancelled when deactivated. |
-| 5 | `NotificationHelper.kt` | `.../util/NotificationHelper.kt` | Creates notification channel on Android 8+. Helper to build and show notifications for: (a) incoming forwarded SMS on receiver phone, (b) optional "forwarding active" status on sender phone. |
+| File | Path | Description & Purpose |
+|---|---|---|
+| **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Reconstructs multi-part SMS messages, immediately saves them to local SQLite (<20ms), and checks network availability. Performs quick direct HTTP sync within a 4-second timeout or delegates to WorkManager if connectivity is constrained. |
+| **`BootReceiver.kt`** | `.../receiver/BootReceiver.kt` | Manifest-registered receiver for `BOOT_COMPLETED`. Fires on device restart to verify if unsynced messages exist in SQLite; immediately enqueues `BackupSyncWorker` if needed. |
+| **`BackupSyncWorker.kt`** | `.../worker/BackupSyncWorker.kt` | `CoroutineWorker` scheduled via WorkManager with network constraints. Handles guaranteed background delivery, retry logic with exponential backoff, and ensures pending queue messages reach Google Sheets even during deep sleep. |
+| **`CryptoHelper.kt`** | `.../util/CryptoHelper.kt` | Native Android cryptographic utility (`javax.crypto`). Implements authenticated **AES-256-GCM** encryption with PBKDF2/SHA-256 key derivation (256-bit key) and cryptographically secure 12-byte random IVs per message. Prepends `ENC:` prefix to generated base64 payloads. |
+| **`NotificationHelper.kt`** | `.../util/NotificationHelper.kt` | Creates and manages Android notification channels (`sms_backup_channel`, `auth_recovery_channel`). Builds high-priority actionable notifications for Google OAuth recovery, permission alerts, and sync status. |
 
 ---
 
-## Agent 4: UI Layer
+### 3.4 UI Layer (`com.personal.msgforwarder.ui`)
 
-Creates Compose screens, navigation, theme, and MainActivity.
-
-### Files:
-
-| # | File | Path | Purpose |
-|---|---|---|---|
-| 1 | `Color.kt` | `.../ui/theme/Color.kt` | Minimal color palette — primary green, background white, error red. |
-| 2 | `Theme.kt` | `.../ui/theme/Theme.kt` | Material3 light theme using the colors above. No dark theme (keep it simple). |
-| 3 | `AppNavigation.kt` | `.../ui/AppNavigation.kt` | NavHost with 3 routes: `pairing`, `sender`, `receiver`. On launch → check PreferencesHelper → if already paired, skip to sender/receiver based on saved role. |
-| 4 | `PairingScreen.kt` | `.../ui/screens/PairingScreen.kt` | TextField for 6-digit pairing code. Two radio buttons: "Sender (Mom's phone)" / "Receiver (My phone)". Connect button → saves to PreferencesHelper + writes FCM token to Firebase → navigates to sender or receiver screen. |
-| 5 | `SenderScreen.kt` | `.../ui/screens/SenderScreen.kt` | Shows: role label, active/inactive status (reads from PreferencesHelper, updates via Firebase listener), last forwarded message, heartbeat status. A "Troubleshoot" button linking to dontkillmyapp.com. No action buttons — mom doesn't need to press anything. |
-| 6 | `ReceiverScreen.kt` | `.../ui/screens/ReceiverScreen.kt` | Big Activate/Deactivate toggle button. On tap → writes to Firebase + sends FCM to partner. Below: list of forwarded messages (read from Firebase `channels/<code>/messages`, ordered by timestamp desc). Each message card shows sender, body, time ago. Heartbeat indicator: "Mom's phone last seen: X ago ✅/⚠️". |
-| 7 | `MainActivity.kt` | `.../MainActivity.kt` | Single Activity, `setContent { AppTheme { AppNavigation() } }`. Requests SMS + notification permissions on launch (runtime permission flow for Android 13+). |
+| File | Path | Description & Purpose |
+|---|---|---|
+| **`MainActivity.kt`** | `.../MainActivity.kt` | Single activity host. Configures dark system theme, requests runtime SMS and notification permissions, and sets Compose content to `AppTheme { AppNavigation() }`. |
+| **`HomeScreen.kt`** | `.../ui/screens/HomeScreen.kt` | Primary dashboard. Features real-time backup toggle switch, Google account status card (connected account email, Google Sheet link button, last synced relative time), battery optimization warning banner with one-tap whitelist intent, and direct sync privacy card. Uses `.statusBarsPadding()` for punch-hole camera compatibility. |
+| **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses developer credits ("Created by SHIVAM GUPTA"), custom minimalist 3-line hamburger canvas icon, close icon, and AES-256 Encryption toggle with masked secret key management dialog. |
+| **`AppNavigation.kt`** | `.../ui/AppNavigation.kt` | Navigation container hosting `HomeScreen` with responsive layout composition. |
+| **`Color.kt`** | `.../ui/theme/Color.kt` | Premium dark luxury palette: `DeepBlack` (`#0A0B0D`), `SurfaceDark` (`#121418`), `SurfaceElevated` (`#181B20`), `BorderSubtle` (`#22262E`), `AccentEmerald` (`#10B981`), `AccentAmber`, and typography tones. |
+| **`Theme.kt`** | `.../ui/theme/Theme.kt` | Material3 dark color scheme mapping typography and surfaces to modern AMOLED aesthetics. |
 
 ---
 
-## File Tree (Final)
+## 4. Google Sheet Structure
 
-```
-msgforwarder/
-├── settings.gradle.kts
-├── build.gradle.kts
-├── gradle.properties
-├── gradle/
-│   └── wrapper/
-│       └── gradle-wrapper.properties
-└── app/
-    ├── build.gradle.kts
-    ├── proguard-rules.pro
-    └── src/
-        └── main/
-            ├── AndroidManifest.xml
-            └── java/com/personal/msgforwarder/
-                ├── MainActivity.kt
-                ├── data/
-                │   ├── MessageData.kt
-                │   ├── PreferencesHelper.kt
-                │   ├── FirebaseHelper.kt
-                │   └── FcmTokenManager.kt
-                ├── receiver/
-                │   ├── SmsBroadcastReceiver.kt
-                │   └── BootReceiver.kt
-                ├── service/
-                │   └── FcmService.kt
-                ├── worker/
-                │   └── HeartbeatWorker.kt
-                ├── util/
-                │   └── NotificationHelper.kt
-                └── ui/
-                    ├── AppNavigation.kt
-                    ├── theme/
-                    │   ├── Color.kt
-                    │   └── Theme.kt
-                    └── screens/
-                        ├── PairingScreen.kt
-                        ├── SenderScreen.kt
-                        └── ReceiverScreen.kt
-```
+Messages are appended as rows inside the `Messages` tab of the `msg_backup` spreadsheet:
 
-**Total: 20 files** (7 config + 13 Kotlin)
+| Column | Header | Width | Formatting | Content |
+|---|---|---|---|---|
+| **A** | Date | 110 px | Center aligned, Middle | `dd-MM-yyyy` (e.g. `23-10-2026`) |
+| **B** | Time | 120 px | Center aligned, Middle | `hh:mm:ss a` (e.g. `11:45:12 PM`) |
+| **C** | Sender | 140 px | Center aligned, Middle | Originating address / sender name |
+| **D to CW** | Message Content | 100 merged cells | Left aligned, Top, Text Wrap (`WRAP`) | Plain text or `ENC:<Base64>` AES-256 payload |
 
 ---
 
-## Build Order
+## 5. Security & Privacy Highlights
 
-Agents can work in parallel since there are no cross-file dependencies during creation:
-
-```
-Agent 1 (Scaffolding)  ──► 7 files  ─┐
-Agent 2 (Data Layer)   ──► 4 files  ─┼──► All files created ──► Build & Test
-Agent 3 (Services)     ──► 5 files  ─┤
-Agent 4 (UI)           ──► 7 files  ─┘
-```
-
-> [!NOTE]
-> After all files are created, you'll need to:
-> 1. Place your `google-services.json` (from Firebase Console) into the `app/` folder
-> 2. Open the project in Android Studio
-> 3. Sync Gradle
-> 4. Build APK and install on both phones
+1. **Direct Communication**: Data travels encrypted over TLS directly from the phone to Google's official REST endpoints (`https://sheets.googleapis.com` and `https://www.googleapis.com/drive`). No intermediary proxy, relay, or developer server ever sees or stores the data.
+2. **Zero Local Storage Footprint**: Messages stored in local SQLite exist only while awaiting upload confirmation. The moment HTTP 200 OK is returned, the local row is purged.
+3. **End-to-End Encryption (E2EE)**: When AES-256 encryption is toggled on, message contents cannot be read in Google Sheets without knowledge of the user's secret key.
+4. **Scoped Permissions**: The OAuth 2.0 token requests only `drive.file` (access exclusively to files created by this app) and `spreadsheets`, avoiding broad access to the user's entire Google Drive.
