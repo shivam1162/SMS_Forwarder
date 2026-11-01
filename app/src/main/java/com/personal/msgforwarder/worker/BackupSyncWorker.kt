@@ -10,9 +10,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.personal.msgforwarder.data.PreferencesHelper
-import com.personal.msgforwarder.data.google.GoogleSheetsManager
-import com.personal.msgforwarder.data.local.MessageDbHelper
+import com.personal.msgforwarder.sync.SyncManager
 
 /**
  * Background worker to sync pending SMS messages to Google Sheets.
@@ -38,39 +36,21 @@ class BackupSyncWorker(
 
             WorkManager.getInstance(context).enqueueUniqueWork(
                 WORK_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 request
             )
-            Log.d(TAG, "Enqueued BackupSyncWorker")
+            Log.d(TAG, "Enqueued BackupSyncWorker (policy=KEEP)")
         }
     }
 
     override suspend fun doWork(): ListenableWorker.Result {
-        val prefs = PreferencesHelper(context)
-        if (!prefs.isSignedIn || !prefs.isBackupEnabled) {
-            Log.d(TAG, "User not signed in or backup disabled, skipping sync")
-            return ListenableWorker.Result.success()
-        }
-
-        val dbHelper = MessageDbHelper.getInstance(context)
-        val pendingMessages = dbHelper.getPendingMessages()
-
-        if (pendingMessages.isEmpty()) {
-            Log.d(TAG, "No pending messages to sync")
-            return ListenableWorker.Result.success()
-        }
-
-        Log.d(TAG, "Attempting to sync ${pendingMessages.size} pending message(s) to Google Sheets...")
-
-        val result = GoogleSheetsManager.appendMessages(context, pendingMessages)
+        Log.d(TAG, "BackupSyncWorker running")
+        val result = SyncManager.performSync(context)
         return if (result.isSuccess) {
-            val syncedIds = pendingMessages.map { it.id }
-            dbHelper.deleteBatch(syncedIds)
-            prefs.totalSyncedCount += syncedIds.size
-            Log.d(TAG, "Successfully synced to Google Sheets and deleted ${syncedIds.size} message(s) from local storage")
+            Log.d(TAG, "BackupSyncWorker completed successfully")
             ListenableWorker.Result.success()
         } else {
-            Log.e(TAG, "Sync failed: ${result.exceptionOrNull()?.message}, will retry with WorkManager")
+            Log.e(TAG, "BackupSyncWorker failed, will retry: ${result.exceptionOrNull()?.message}")
             ListenableWorker.Result.retry()
         }
     }

@@ -24,7 +24,7 @@ import java.util.concurrent.TimeUnit
  *
  * Self-Healing Architecture:
  * - If spreadsheet is deleted from Drive (404) or tab is renamed/missing (400),
- *   automatically re-creates 'msg_backup' on the fly with headers and merged layout,
+ *   automatically re-creates 'SUPERAPP_SHEET' on the fly with headers and merged layout,
  *   retrying the sync immediately without dropping messages.
  *
  * Sheet Structure:
@@ -36,7 +36,7 @@ import java.util.concurrent.TimeUnit
 object GoogleSheetsManager {
 
     private const val TAG = "GoogleSheetsManager"
-    private const val SPREADSHEET_NAME = "msg_backup"
+    private const val SPREADSHEET_NAME = "SUPERAPP_SHEET"
     private const val SHEET_TITLE = "Messages"
     private const val REQUIRED_COLUMNS = 110
     private const val MSG_START_COL = 3
@@ -53,10 +53,15 @@ object GoogleSheetsManager {
     private val dateFormatter = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
     private val timeFormatter = SimpleDateFormat("hh:mm:ss a", Locale.getDefault())
 
-    data class SheetMetadata(val sheetId: Int, val columnCount: Int, val isValid: Boolean)
+    data class SheetMetadata(
+        val sheetId: Int,
+        val columnCount: Int,
+        val isValid: Boolean,
+        val responseCode: Int = 200
+    )
 
     /**
-     * Resolves the spreadsheet ID and webViewUrl for 'msg_backup'.
+     * Resolves the spreadsheet ID and webViewUrl for 'SUPERAPP_SHEET'.
      * Searches Google Drive first, verifies existing files, and self-heals if deleted.
      */
     suspend fun getOrCreateSpreadsheet(context: Context): Result<Pair<String, String>> =
@@ -69,18 +74,34 @@ object GoogleSheetsManager {
                 ?: return@withContext Result.failure(Exception("Failed to acquire Google OAuth token"))
 
             if (!cachedId.isNullOrBlank() && !cachedUrl.isNullOrBlank()) {
-                val metadata = getSheetMetadata(cachedId, token)
+                var metadata = getSheetMetadata(cachedId, token)
+
+                // If 401 Unauthorized, token has expired. Invalidate and refresh token once.
+                if (metadata.responseCode == 401) {
+                    Log.d(TAG, "OAuth token expired during metadata check. Refreshing token...")
+                    GoogleAuthManager.invalidateToken(context, token)
+                    val freshToken = GoogleAuthManager.getAccessToken(context)
+                    if (freshToken != null) {
+                        token = freshToken
+                        metadata = getSheetMetadata(cachedId, token)
+                    }
+                }
+
                 if (metadata.isValid) {
-                    ensureSheetFormatted(cachedId, token, metadata)
+                    prefs.sheetTabId = metadata.sheetId
+                    // Only format if columns are missing (avoids redundant network calls on hot path)
+                    if (metadata.columnCount < REQUIRED_COLUMNS) {
+                        ensureSheetFormatted(cachedId, token, metadata)
+                    }
                     return@withContext Result.success(Pair(cachedId, cachedUrl))
-                } else {
-                    Log.w(TAG, "Cached spreadsheet $cachedId is invalid/deleted. Self-healing...")
+                } else if (metadata.responseCode == 404 || metadata.responseCode == 400) {
+                    Log.w(TAG, "Cached spreadsheet $cachedId is missing or deleted (${metadata.responseCode}). Self-healing...")
                     prefs.spreadsheetId = null
                     prefs.spreadsheetUrl = null
                 }
             }
 
-            // 1. Search Google Drive for existing 'msg_backup'
+            // 1. Search Google Drive for existing 'SUPERAPP_SHEET'
             val searchQuery = "name = '$SPREADSHEET_NAME' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false"
             val searchUrl = "https://www.googleapis.com/drive/v3/files?q=${URLEncoder.encode(searchQuery, "UTF-8")}&fields=files(id,name,webViewLink)"
 
@@ -127,6 +148,7 @@ object GoogleSheetsManager {
                 Log.d(TAG, "Found existing spreadsheet in Drive: $id ($url)")
 
                 val metadata = getSheetMetadata(id, token)
+                prefs.sheetTabId = metadata.sheetId
                 ensureSheetFormatted(id, token, metadata)
 
                 return@withContext Result.success(Pair(id, url))
@@ -176,9 +198,10 @@ object GoogleSheetsManager {
 
             prefs.spreadsheetId = spreadsheetId
             prefs.spreadsheetUrl = spreadsheetUrl
+            prefs.sheetTabId = 0
 
             // Format header row and column widths
-            val metadata = SheetMetadata(sheetId = 0, columnCount = REQUIRED_COLUMNS, isValid = true)
+            val metadata = SheetMetadata(sheetId = 0, columnCount = REQUIRED_COLUMNS, isValid = true, responseCode = 200)
             ensureSheetFormatted(spreadsheetId, token, metadata)
 
             Log.d(TAG, "Created spreadsheet $spreadsheetId successfully with self-healing headers")
@@ -198,6 +221,7 @@ object GoogleSheetsManager {
 
         return try {
             val response = httpClient.newCall(request).execute()
+            val code = response.code
             var sheetId = 0
             var colCount = 26
             val isSuccess = response.isSuccessful
@@ -219,10 +243,10 @@ object GoogleSheetsManager {
                 }
             }
             response.close()
-            SheetMetadata(sheetId, colCount, isValid = isSuccess)
+            SheetMetadata(sheetId, colCount, isValid = isSuccess, responseCode = code)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching sheet metadata", e)
-            SheetMetadata(0, 26, isValid = false)
+            SheetMetadata(0, 26, isValid = false, responseCode = -1)
         }
     }
 
@@ -354,7 +378,7 @@ object GoogleSheetsManager {
     }
 
     /**
-     * Appends a list of messages to the 'msg_backup' spreadsheet:
+     * Appends a list of messages to the 'SUPERAPP_SHEET' spreadsheet:
      * - Date (dd-MM-yyyy) in Col A
      * - Time (hh:mm:ss a) in Col B
      * - Sender in Col C
@@ -438,9 +462,9 @@ object GoogleSheetsManager {
                 response.close()
                 Log.w(TAG, "Spreadsheet missing or tab corrupted ($code). Self-healing recovery triggered...")
 
-                val prefs = PreferencesHelper(context)
-                prefs.spreadsheetId = null
-                prefs.spreadsheetUrl = null
+                val helper = PreferencesHelper(context)
+                helper.spreadsheetId = null
+                helper.spreadsheetUrl = null
 
                 val recoveredResult = getOrCreateSpreadsheet(context)
                 if (recoveredResult.isSuccess) {
@@ -476,9 +500,8 @@ object GoogleSheetsManager {
             val updatesObj = appendRespJson.optJSONObject("updates")
             val updatedRange = updatesObj?.optString("updatedRange", "") ?: ""
 
-            applyRowFormatting(spreadsheetId, token, updatedRange)
+            applyRowFormatting(spreadsheetId, token, updatedRange, prefs.sheetTabId)
 
-            PreferencesHelper(context).lastSyncTimestamp = System.currentTimeMillis()
             Log.d(TAG, "Successfully appended ${messages.size} message(s) to Google Sheet")
             Result.success(messages.size)
         }
@@ -487,7 +510,12 @@ object GoogleSheetsManager {
      * Merges 100 cells horizontally (columns D to CW) for each appended row,
      * enables text wrapping, aligns date/time to center, and aligns message to top.
      */
-    private fun applyRowFormatting(spreadsheetId: String, token: String, updatedRange: String) {
+    private fun applyRowFormatting(
+        spreadsheetId: String,
+        token: String,
+        updatedRange: String,
+        sheetTabId: Int = 0
+    ) {
         if (updatedRange.isBlank()) return
 
         try {
@@ -496,9 +524,7 @@ object GoogleSheetsManager {
             val startRow = match.groupValues[1].toInt() - 1 // 0-indexed inclusive
             val endRow = match.groupValues[2].toInt()       // 0-indexed exclusive
 
-            val metadata = getSheetMetadata(spreadsheetId, token)
-            val sheetId = metadata.sheetId
-
+            val sheetId = sheetTabId
             val requests = JSONArray()
 
             // 1. Merge columns D through CW (100 cells) for each row

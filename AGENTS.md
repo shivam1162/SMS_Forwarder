@@ -7,7 +7,7 @@
 
 ## 1. What This App Does
 
-**SMS Backup** is a lightweight, privacy-first Android application that automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`msg_backup`) in the user's personal Google Drive account.
+**SMS Backup** is a lightweight, privacy-first Android application that automatically synchronizes incoming SMS messages in real-time directly to a private Google Spreadsheet (`SUPERAPP_SHEET`) in the user's personal Google Drive account.
 
 ### Key Capabilities:
 - **Direct-to-Drive Sync (No Third-Party Servers)**: Communicates directly with Google Drive API v3 and Google Sheets API v4 using official Google OAuth 2.0 tokens (`https://www.googleapis.com/auth/drive.file` and `https://www.googleapis.com/auth/spreadsheets`).
@@ -15,7 +15,8 @@
 - **Client-Side AES-256-GCM Encryption**: Optional cryptographic layer enabling users to set a custom secret key passphrase. All SMS message content is encrypted with 256-bit AES-GCM before leaving the device. Date, time, and sender remain plain text for readability in the sheet.
 - **Lightning-Fast Ingestion (<50ms)**: Incoming SMS messages are immediately written to a local SQLite database in under 20ms to guarantee zero message loss even if the device reboots, loses connectivity, or enters Android Doze mode.
 - **Immediate Privacy Purge**: As soon as a message is confirmed uploaded to Google Sheets, it is immediately deleted from the local SQLite database. Messages never linger on the phone's storage.
-- **Self-Healing Google Sheets Integration**: If the spreadsheet or tab is accidentally deleted, moved, or corrupted in Google Drive (HTTP 404/400), the engine automatically detects the error, re-creates `msg_backup` in Drive, formats columns, merges 100 cells horizontally with text-wrapping, styles headers in emerald green, and re-uploads pending messages without dropping data.
+- **Single-Flight Concurrency & Zero Duplication**: Centralized `SyncManager` protected by a coroutine `Mutex` prevents race conditions between immediate broadcast sync and background WorkManager jobs, guaranteeing zero duplicate uploads.
+- **Self-Healing Google Sheets Integration**: If the spreadsheet or tab is accidentally deleted, moved, or corrupted in Google Drive (HTTP 404/400), the engine automatically detects the error, re-creates `SUPERAPP_SHEET` in Drive, formats columns, merges 100 cells horizontally with text-wrapping, styles headers in emerald green, and re-uploads pending messages without dropping data.
 - **Doze & Offline Resilience**: Integrated with Android `WorkManager` for exponential backoff retries when offline, plus a built-in battery optimization whitelist flow.
 - **Premium Dark Luxury Interface**: Minimalist OLED black (`#0A0B0D`) design, zero emojis, punch-hole camera safe insets, and a left-sliding navigation drawer displaying developer credits and security settings.
 - **Ultra-Compact APK Size**: Optimized via R8 compiler tree-shaking, dead code elimination, and resource shrinking (~3.5–4.5 MB release build).
@@ -27,25 +28,31 @@
 ```mermaid
 flowchart TD
     SMS[Incoming SMS] -->|SMS_RECEIVED| BR[SmsBroadcastReceiver]
-    BR -->|Synchronous Insert <20ms| DB[(Local SQLite Queue)]
-    BR --> NetCheck{Network Available?}
+    BR -->|Check 5s Duplicate| DupCheck{Duplicate?}
+    DupCheck -->|Yes| Drop[Drop Broadcast Duplicate]
+    DupCheck -->|No| DB[(Local SQLite Queue)]
     
-    NetCheck -->|Offline / Weak Signal| WM[Enqueue BackupSyncWorker]
-    NetCheck -->|Online| Sync[Fast Sync Engine <4s timeout]
+    DB --> NetCheck{Network Available?}
+    NetCheck -->|Offline / Weak Signal| WM[Enqueue BackupSyncWorker KEEP]
+    NetCheck -->|Online| SyncReq[Trigger SyncManager.performSync]
     
-    Sync --> EncCheck{AES-256 Enabled?}
-    EncCheck -->|Yes| Crypto[CryptoHelper.encrypt via AES-256-GCM]
-    EncCheck -->|No| Plain[Plain Text Body]
+    WM --> SyncReq
     
-    Crypto --> Sheets[Google Sheets REST API]
-    Plain --> Sheets
+    subgraph Pipeline ["SyncManager Pipeline (Mutex Guarded)"]
+        SyncReq --> Mutex[Acquire Mutex Lock]
+        Mutex --> FetchPending[Query Pending Messages from SQLite]
+        FetchPending --> EncCheck{AES-256 Enabled?}
+        EncCheck -->|Yes| Crypto[CryptoHelper.encrypt via AES-256-GCM]
+        EncCheck -->|No| Plain[Plain Text Body]
+        Crypto --> Sheets[Google Sheets REST API]
+        Plain --> Sheets
+        Sheets -->|Success HTTP 200| Purge[Purge Messages from SQLite]
+        Sheets -->|HTTP 404/400 Deleted| SelfHeal[Self-Healing: Recreate Sheet & Retry]
+        SelfHeal --> Sheets
+        Purge --> Release[Release Mutex Lock]
+    end
     
-    Sheets -->|Success HTTP 200| Purge[Purge Message from SQLite]
-    Sheets -->|HTTP 404/400 Deleted| SelfHeal[Self-Healing: Recreate Sheet & Retry]
     Sheets -->|Timeout / Fail| WM
-    SelfHeal --> Sheets
-    
-    WM -->|Background Retry| Sync
 ```
 
 ---
@@ -66,15 +73,16 @@ flowchart TD
 
 ---
 
-### 3.2 Data Layer (`com.personal.msgforwarder.data`)
+### 3.2 Synchronization & Data Layer (`data`, `sync`)
 
 | File | Path | Description & Purpose |
 |---|---|---|
+| **`SyncManager.kt`** | `.../sync/SyncManager.kt` | Thread-safe single-flight synchronization gateway protected by Kotlin coroutine `Mutex`. Handles atomic queue retrieval, Google Sheets upload, and batch SQLite deletion, guaranteeing zero duplicate uploads between real-time receiver and WorkManager. |
 | **`MessageData.kt`** | `.../data/MessageData.kt` | Data class representing an SMS item: `id: Long`, `sender: String`, `body: String`, `timestamp: Long`, `isSynced: Boolean`, `syncedAt: Long?`. |
-| **`PreferencesHelper.kt`** | `.../data/PreferencesHelper.kt` | Thread-safe `SharedPreferences` wrapper. Manages local persistence for: Google account email and display name, active spreadsheet ID & URL, last sync timestamp, backup enabled state, AES-256 encryption state (`isEncryptionEnabled`), and secret passphrase (`encryptionKey`). Zero network or battery overhead. |
-| **`MessageDbHelper.kt`** | `.../data/local/MessageDbHelper.kt` | SQLite database helper managing table `messages`. Provides atomic transactions: synchronous insertion (`insertMessage`), retrieval of unsynced messages (`getPendingMessages`), marking messages synced, and instant row deletion (`deleteMessage`) upon upload confirmation. |
+| **`PreferencesHelper.kt`** | `.../data/PreferencesHelper.kt` | Thread-safe `SharedPreferences` wrapper. Manages local persistence for: Google account email and display name, active spreadsheet ID, sheet tab ID & URL, last sync timestamp, backup enabled state, AES-256 encryption state (`isEncryptionEnabled`), and secret passphrase (`encryptionKey`). Zero network or battery overhead. |
+| **`MessageDbHelper.kt`** | `.../data/local/MessageDbHelper.kt` | SQLite database helper managing table `messages`. Provides atomic transactions: synchronous insertion (`insertMessage`), 5-second duplicate broadcast detection (`isRecentDuplicate`), retrieval of unsynced messages (`getPendingMessages`), marking messages synced, and instant row deletion (`deleteBatch`) upon upload confirmation. |
 | **`GoogleAuthManager.kt`** | `.../data/google/GoogleAuthManager.kt` | Handles Google Sign-In and OAuth 2.0 lifecycle. Requests drive/sheet scopes, parses sign-in results, and retrieves fresh bearer tokens via `GoogleAuthUtil.getToken()`. Features self-healing auth notifications when user re-consent is required (`UserRecoverableAuthException`). |
-| **`GoogleSheetsManager.kt`** | `.../data/google/GoogleSheetsManager.kt` | REST API manager using OkHttp. Manages Google Drive file searching, spreadsheet creation, header row styling (emerald background with centered bold labels), 100-cell horizontal merge (Columns D to CW) with text-wrapping, and batch row appends. Implements automated self-healing upon 404/400 errors. |
+| **`GoogleSheetsManager.kt`** | `.../data/google/GoogleSheetsManager.kt` | REST API manager using OkHttp. Features OAuth token expiration recovery on HTTP 401, cached header validation, spreadsheet creation, header row styling, 100-cell horizontal merge (Columns D to CW) with text-wrapping, and batch row appends. |
 
 ---
 
@@ -82,9 +90,9 @@ flowchart TD
 
 | File | Path | Description & Purpose |
 |---|---|---|
-| **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Reconstructs multi-part SMS messages, immediately saves them to local SQLite (<20ms), and checks network availability. Performs quick direct HTTP sync within a 4-second timeout or delegates to WorkManager if connectivity is constrained. |
+| **`SmsBroadcastReceiver.kt`** | `.../receiver/SmsBroadcastReceiver.kt` | Manifest-registered receiver for `SMS_RECEIVED` (priority 999). Reconstructs multi-part SMS messages, checks for duplicate broadcast deliveries within 5s, saves them to local SQLite (<20ms), and triggers `SyncManager.performSync()` capped at a 10s timeout. Hands off to WorkManager if offline or timed out. |
 | **`BootReceiver.kt`** | `.../receiver/BootReceiver.kt` | Manifest-registered receiver for `BOOT_COMPLETED`. Fires on device restart to verify if unsynced messages exist in SQLite; immediately enqueues `BackupSyncWorker` if needed. |
-| **`BackupSyncWorker.kt`** | `.../worker/BackupSyncWorker.kt` | `CoroutineWorker` scheduled via WorkManager with network constraints. Handles guaranteed background delivery, retry logic with exponential backoff, and ensures pending queue messages reach Google Sheets even during deep sleep. |
+| **`BackupSyncWorker.kt`** | `.../worker/BackupSyncWorker.kt` | `CoroutineWorker` scheduled via WorkManager (`ExistingWorkPolicy.KEEP`). Delegates cleanly to `SyncManager.performSync()` to guarantee background delivery with exponential backoff retries without interrupting in-flight requests. |
 | **`CryptoHelper.kt`** | `.../util/CryptoHelper.kt` | Native Android cryptographic utility (`javax.crypto`). Implements authenticated **AES-256-GCM** encryption with PBKDF2/SHA-256 key derivation (256-bit key) and cryptographically secure 12-byte random IVs per message. Prepends `ENC:` prefix to generated base64 payloads. |
 | **`NotificationHelper.kt`** | `.../util/NotificationHelper.kt` | Creates and manages Android notification channels (`sms_backup_channel`, `auth_recovery_channel`). Builds high-priority actionable notifications for Google OAuth recovery, permission alerts, and sync status. |
 
@@ -105,7 +113,7 @@ flowchart TD
 
 ## 4. Google Sheet Structure
 
-Messages are appended as rows inside the `Messages` tab of the `msg_backup` spreadsheet:
+Messages are appended as rows inside the `Messages` tab of the `SUPERAPP_SHEET` spreadsheet:
 
 | Column | Header | Width | Formatting | Content |
 |---|---|---|---|---|

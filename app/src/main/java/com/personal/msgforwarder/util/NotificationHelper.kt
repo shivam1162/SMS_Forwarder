@@ -84,7 +84,7 @@ object NotificationHelper {
      */
     fun showBackupNotification(context: Context, sender: String, count: Int = 1) {
         val title = if (count == 1) "SMS Backed Up" else "$count Messages Backed Up"
-        val message = "Backed up to Google Sheet 'msg_backup' from $sender"
+        val message = "Backed up to Google Sheet 'SUPERAPP_SHEET' from $sender"
 
         val notification = NotificationCompat.Builder(context, CHANNEL_STATUS)
             .setSmallIcon(android.R.drawable.ic_dialog_info)

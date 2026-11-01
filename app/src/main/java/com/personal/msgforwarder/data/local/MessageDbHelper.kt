@@ -65,6 +65,26 @@ class MessageDbHelper(context: Context) :
         return db.insert(TABLE_MESSAGES, null, values)
     }
 
+    /**
+     * Checks if an identical message from the same sender was received within the specified window.
+     * Guards against duplicate OS/carrier broadcast deliveries.
+     */
+    fun isRecentDuplicate(sender: String, body: String, withinMs: Long = 5000L): Boolean {
+        val db = readableDatabase
+        val cutoff = System.currentTimeMillis() - withinMs
+        val cursor = db.query(
+            TABLE_MESSAGES,
+            arrayOf(COLUMN_ID),
+            "$COLUMN_SENDER = ? AND $COLUMN_BODY = ? AND $COLUMN_TIMESTAMP >= ?",
+            arrayOf(sender, body, cutoff.toString()),
+            null,
+            null,
+            null,
+            "1"
+        )
+        return cursor.use { it.moveToFirst() }
+    }
+
     fun deleteMessage(id: Long) {
         val db = writableDatabase
         db.delete(TABLE_MESSAGES, "$COLUMN_ID = ?", arrayOf(id.toString()))

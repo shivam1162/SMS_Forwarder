@@ -21,7 +21,12 @@ class PreferencesHelper(context: Context) {
         private const val KEY_TOTAL_SYNCED_COUNT = "total_synced_count"
         private const val KEY_IS_ENCRYPTION_ENABLED = "is_encryption_enabled"
         private const val KEY_ENCRYPTION_KEY = "encryption_key"
+        private const val KEY_SHEET_TAB_ID = "sheet_tab_id"
     }
+
+    var sheetTabId: Int
+        get() = prefs.getInt(KEY_SHEET_TAB_ID, 0)
+        set(value) = prefs.edit().putInt(KEY_SHEET_TAB_ID, value).apply()
 
     var isEncryptionEnabled: Boolean
         get() = prefs.getBoolean(KEY_IS_ENCRYPTION_ENABLED, false)
@@ -68,6 +73,7 @@ class PreferencesHelper(context: Context) {
             .remove(KEY_GOOGLE_ACCOUNT_NAME)
             .remove(KEY_SPREADSHEET_ID)
             .remove(KEY_SPREADSHEET_URL)
+            .remove(KEY_SHEET_TAB_ID)
             .apply()
     }
 
