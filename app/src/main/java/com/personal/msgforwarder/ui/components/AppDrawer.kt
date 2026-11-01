@@ -19,9 +19,7 @@ import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.ui.theme.BorderSubtle
 import com.personal.msgforwarder.ui.theme.SurfaceDark
 import com.personal.msgforwarder.ui.theme.SurfaceElevated
-import com.personal.msgforwarder.ui.theme.TextMuted
 import com.personal.msgforwarder.ui.theme.TextPrimary
-import com.personal.msgforwarder.ui.theme.TextSecondary
 
 /**
  * Clean, minimalist 3-line hamburger menu icon.
@@ -65,39 +63,12 @@ fun HamburgerMenuIcon(
 }
 
 /**
- * Clean, minimalist 'X' close icon.
- */
-@Composable
-fun CloseIcon(
-    modifier: Modifier = Modifier.size(16.dp),
-    color: Color = TextSecondary
-) {
-    Canvas(modifier = modifier) {
-        val strokeWidth = 1.8.dp.toPx()
-        drawLine(
-            color = color,
-            start = Offset(0f, 0f),
-            end = Offset(size.width, size.height),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
-        drawLine(
-            color = color,
-            start = Offset(0f, size.height),
-            end = Offset(size.width, 0f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
-    }
-}
-
-/**
  * Side slide-out navigation drawer sheet.
  */
 @Composable
 fun AppDrawerContent(
     prefs: PreferencesHelper,
-    onClose: () -> Unit
+    onClose: () -> Unit = {}
 ) {
     ModalDrawerSheet(
         drawerContainerColor = SurfaceDark,
@@ -112,42 +83,21 @@ fun AppDrawerContent(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .padding(horizontal = 20.dp)
-                .padding(top = 18.dp, bottom = 24.dp)
+                .padding(top = 22.dp, bottom = 24.dp)
         ) {
-            // Header: Title & Close Button
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "SMS Backup",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 17.sp,
-                        letterSpacing = 0.3.sp
-                    )
-                    Text(
-                        text = "SuperApp System",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextMuted,
-                        fontSize = 12.sp
-                    )
-                }
+            // Header: Title
+            Text(
+                text = "SuperApp",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                fontSize = 22.sp,
+                letterSpacing = 0.5.sp
+            )
 
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    CloseIcon(color = TextSecondary)
-                }
-            }
+            Spacer(modifier = Modifier.weight(1f))
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Card: Created by SHIVAM GUPTA
+            // Bottom: Created by SHIVAM GUPTA
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = SurfaceElevated,
@@ -157,35 +107,19 @@ fun AppDrawerContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 18.dp, horizontal = 16.dp),
+                        .padding(vertical = 16.dp, horizontal = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "Created by SHIVAM GUPTA",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
                         textAlign = TextAlign.Center,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         letterSpacing = 0.5.sp
                     )
                 }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            // Footer Close Button
-            TextButton(
-                onClick = onClose,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = "Close Menu",
-                    color = TextSecondary,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 13.sp
-                )
             }
         }
     }

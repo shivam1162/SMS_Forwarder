@@ -104,7 +104,7 @@ flowchart TD
 |---|---|---|
 | **`MainActivity.kt`** | `.../MainActivity.kt` | Single activity host. Configures dark system theme, requests runtime SMS and notification permissions, and sets Compose content to `AppTheme { AppNavigation() }`. |
 | **`HomeScreen.kt`** | `.../ui/screens/HomeScreen.kt` | Primary dashboard. Features real-time backup toggle switch, Google account status card (connected account email, Google Sheet link button, last synced relative time), AES-256 Encryption toggle with masked secret key management dialog, and battery optimization warning banner with one-tap whitelist intent. Uses `.statusBarsPadding()` and scrollable container for compatibility across device sizes. |
-| **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses developer credits ("Created by SHIVAM GUPTA"), custom minimalist 3-line hamburger canvas icon, close icon, and system menu. |
+| **`AppDrawer.kt`** | `.../ui/components/AppDrawer.kt` | Left-sliding navigation drawer (`ModalNavigationDrawer`). Houses "SuperApp" branding, developer credits ("Created by SHIVAM GUPTA") pinned at bottom, and custom minimalist 3-line hamburger canvas icon. |
 | **`AppNavigation.kt`** | `.../ui/AppNavigation.kt` | Navigation container hosting `HomeScreen` with responsive layout composition. |
 | **`Color.kt`** | `.../ui/theme/Color.kt` | Premium dark luxury palette: `DeepBlack` (`#0A0B0D`), `SurfaceDark` (`#121418`), `SurfaceElevated` (`#181B20`), `BorderSubtle` (`#22262E`), `AccentEmerald` (`#10B981`), `AccentAmber`, and typography tones. |
 | **`Theme.kt`** | `.../ui/theme/Theme.kt` | Material3 dark color scheme mapping typography and surfaces to modern AMOLED aesthetics. |
