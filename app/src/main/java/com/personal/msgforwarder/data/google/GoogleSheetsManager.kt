@@ -5,6 +5,7 @@ import android.util.Log
 import com.personal.msgforwarder.data.MessageData
 import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.util.CryptoHelper
+import com.personal.msgforwarder.util.DeviceDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -27,17 +28,31 @@ import java.util.concurrent.TimeUnit
  *   automatically re-creates 'SUPERAPP_SHEET' on the fly with headers and merged layout,
  *   retrying the sync immediately without dropping messages.
  *
- * Sheet Structure:
+ * Tab 1: 'Messages'
  * - Column A (Index 0): Date (dd-MM-yyyy)
  * - Column B (Index 1): Time (hh:mm:ss a)
  * - Column C (Index 2): Sender
  * - Columns D to CW (Index 3 to 103): 100 merged cells for Full Message Content
+ *
+ * Tab 2: 'Device_Status'
+ * - Col A: Date & Time (dd-MM-yyyy hh:mm:ss a)
+ * - Col B: Battery
+ * - Col C: Sound / Ringer
+ * - Col D: DND Mode
+ * - Col E: Brightness
+ * - Col F: Wi-Fi
+ * - Col G: Mobile Data
+ * - Col H: Airplane Mode
+ * - Col I: Bluetooth
+ * - Col J: GPS Location
  */
 object GoogleSheetsManager {
 
     private const val TAG = "GoogleSheetsManager"
     private const val SPREADSHEET_NAME = "SUPERAPP_SHEET"
     private const val SHEET_TITLE = "Messages"
+    private const val STATUS_SHEET_TITLE = "Device_Status"
+
     private const val REQUIRED_COLUMNS = 110
     private const val MSG_START_COL = 3
     private const val MSG_END_COL = 103 // 100 cells (columns 3 through 102)
@@ -58,6 +73,12 @@ object GoogleSheetsManager {
         val columnCount: Int,
         val isValid: Boolean,
         val responseCode: Int = 200
+    )
+
+    data class SheetTabInfo(
+        val sheetId: Int,
+        val title: String,
+        val columnCount: Int
     )
 
     /**
@@ -209,9 +230,9 @@ object GoogleSheetsManager {
         }
 
     /**
-     * Inspects spreadsheet to get sheetId and ensure grid has at least 110 columns.
+     * Inspects spreadsheet to get sheet list and column info.
      */
-    private fun getSheetMetadata(spreadsheetId: String, token: String): SheetMetadata {
+    private fun getSpreadsheetTabs(spreadsheetId: String, token: String): Pair<Int, List<SheetTabInfo>> {
         val url = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId?fields=sheets(properties(sheetId,title,gridProperties))"
         val request = Request.Builder()
             .url(url)
@@ -222,36 +243,46 @@ object GoogleSheetsManager {
         return try {
             val response = httpClient.newCall(request).execute()
             val code = response.code
-            var sheetId = 0
-            var colCount = 26
-            val isSuccess = response.isSuccessful
+            val list = mutableListOf<SheetTabInfo>()
 
-            if (isSuccess) {
+            if (response.isSuccessful) {
                 val json = JSONObject(response.body?.string() ?: "{}")
                 val sheets = json.optJSONArray("sheets")
-                if (sheets != null && sheets.length() > 0) {
+                if (sheets != null) {
                     for (i in 0 until sheets.length()) {
                         val props = sheets.getJSONObject(i).getJSONObject("properties")
+                        val sheetId = props.optInt("sheetId", 0)
                         val title = props.optString("title", "")
-                        if (title == SHEET_TITLE || i == 0) {
-                            sheetId = props.optInt("sheetId", 0)
-                            val grid = props.optJSONObject("gridProperties")
-                            colCount = grid?.optInt("columnCount", 26) ?: 26
-                            break
-                        }
+                        val grid = props.optJSONObject("gridProperties")
+                        val colCount = grid?.optInt("columnCount", 26) ?: 26
+                        list.add(SheetTabInfo(sheetId, title, colCount))
                     }
                 }
             }
             response.close()
-            SheetMetadata(sheetId, colCount, isValid = isSuccess, responseCode = code)
+            Pair(code, list)
         } catch (e: Exception) {
-            Log.e(TAG, "Error fetching sheet metadata", e)
-            SheetMetadata(0, 26, isValid = false, responseCode = -1)
+            Log.e(TAG, "Error fetching spreadsheet tabs", e)
+            Pair(-1, emptyList())
         }
     }
 
     /**
-     * Applies styling, column expansion (110 cols), header merge, and custom widths to the sheet.
+     * Inspects spreadsheet to get sheetId and ensure grid has at least 110 columns for Messages.
+     */
+    private fun getSheetMetadata(spreadsheetId: String, token: String): SheetMetadata {
+        val (code, tabs) = getSpreadsheetTabs(spreadsheetId, token)
+        val msgTab = tabs.find { it.title == SHEET_TITLE } ?: tabs.firstOrNull()
+        return SheetMetadata(
+            sheetId = msgTab?.sheetId ?: 0,
+            columnCount = msgTab?.columnCount ?: 26,
+            isValid = (code in 200..299 && msgTab != null),
+            responseCode = code
+        )
+    }
+
+    /**
+     * Applies styling, column expansion (110 cols), header merge, and custom widths to the Messages sheet.
      */
     private fun ensureSheetFormatted(spreadsheetId: String, token: String, metadata: SheetMetadata) {
         try {
@@ -593,6 +624,380 @@ object GoogleSheetsManager {
             Log.d(TAG, "Applied row merge and formatting for rows $startRow to $endRow")
         } catch (e: Exception) {
             Log.e(TAG, "Error applying row merge formatting", e)
+        }
+    }
+
+    /**
+     * Ensures the 'Device_Status' tab exists and has the required headers and column widths.
+     */
+    private fun ensureDeviceStatusSheet(spreadsheetId: String, token: String): Result<Int> {
+        return try {
+            val (code, tabs) = getSpreadsheetTabs(spreadsheetId, token)
+            if (code !in 200..299) {
+                return Result.failure(Exception("Failed to read tabs for spreadsheet ($code)"))
+            }
+
+            val existingTab = tabs.find { it.title == STATUS_SHEET_TITLE }
+            if (existingTab != null) {
+                // Expand columns if less than 10
+                if (existingTab.columnCount < 10) {
+                    val expandReq = JSONObject().apply {
+                        put("requests", JSONArray().apply {
+                            put(JSONObject().apply {
+                                put("updateSheetProperties", JSONObject().apply {
+                                    put("properties", JSONObject().apply {
+                                        put("sheetId", existingTab.sheetId)
+                                        put("gridProperties", JSONObject().apply {
+                                            put("columnCount", 10)
+                                            put("frozenRowCount", 1)
+                                        })
+                                    })
+                                    put("fields", "gridProperties.columnCount,gridProperties.frozenRowCount")
+                                })
+                            })
+                        })
+                    }
+                    val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
+                    val batchReq = Request.Builder()
+                        .url(batchUrl)
+                        .addHeader("Authorization", "Bearer $token")
+                        .post(expandReq.toString().toRequestBody(JSON_MEDIA_TYPE))
+                        .build()
+                    httpClient.newCall(batchReq).execute().close()
+                }
+                return Result.success(existingTab.sheetId)
+            }
+
+            // Tab does not exist yet; add it via batchUpdate
+            Log.d(TAG, "Creating '$STATUS_SHEET_TITLE' tab in spreadsheet $spreadsheetId...")
+            val addSheetReq = JSONObject().apply {
+                put("requests", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("addSheet", JSONObject().apply {
+                            put("properties", JSONObject().apply {
+                                put("title", STATUS_SHEET_TITLE)
+                                put("gridProperties", JSONObject().apply {
+                                    put("frozenRowCount", 1)
+                                    put("columnCount", 10)
+                                })
+                            })
+                        })
+                    })
+                })
+            }
+
+            val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
+            val addSheetCall = Request.Builder()
+                .url(batchUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .post(addSheetReq.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            val addResp = httpClient.newCall(addSheetCall).execute()
+            if (!addResp.isSuccessful) {
+                val err = addResp.body?.string()
+                addResp.close()
+                return Result.failure(Exception("Failed to add sheet '$STATUS_SHEET_TITLE': ${addResp.code} - $err"))
+            }
+
+            val addRespJson = JSONObject(addResp.body?.string() ?: "{}")
+            addResp.close()
+
+            val replies = addRespJson.optJSONArray("replies")
+            val newSheetId = replies?.optJSONObject(0)
+                ?.optJSONObject("addSheet")
+                ?.optJSONObject("properties")
+                ?.optInt("sheetId")
+                ?: 0
+
+            // Apply emerald header and column widths
+            formatDeviceStatusHeader(spreadsheetId, token, newSheetId)
+
+            Log.d(TAG, "Successfully created and styled tab '$STATUS_SHEET_TITLE' (sheetId=$newSheetId)")
+            Result.success(newSheetId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error ensuring Device_Status tab", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Styles the 'Device_Status' header row in Emerald green and sets custom column widths.
+     */
+    private fun formatDeviceStatusHeader(spreadsheetId: String, token: String, sheetId: Int) {
+        try {
+            // 1. Write header text
+            val headers = JSONArray().apply {
+                put("Date & Time")
+                put("Battery")
+                put("Sound / Ringer")
+                put("DND Mode")
+                put("Brightness")
+                put("Wi-Fi")
+                put("Mobile Data")
+                put("Airplane Mode")
+                put("Bluetooth")
+                put("GPS Location")
+            }
+            val headerValues = JSONObject().apply {
+                put("values", JSONArray().apply {
+                    put(headers)
+                })
+            }
+            val headerUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${STATUS_SHEET_TITLE}!A1:J1?valueInputOption=USER_ENTERED"
+            val headerReq = Request.Builder()
+                .url(headerUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .put(headerValues.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            httpClient.newCall(headerReq).execute().close()
+
+            // 2. Style header row (Forest green background, white bold text, centered)
+            val requests = JSONArray()
+            requests.put(JSONObject().apply {
+                put("repeatCell", JSONObject().apply {
+                    put("range", JSONObject().apply {
+                        put("sheetId", sheetId)
+                        put("startRowIndex", 0)
+                        put("endRowIndex", 1)
+                        put("startColumnIndex", 0)
+                        put("endColumnIndex", 10)
+                    })
+                    put("cell", JSONObject().apply {
+                        put("userEnteredFormat", JSONObject().apply {
+                            put("backgroundColor", JSONObject().apply {
+                                put("red", 0.082f)
+                                put("green", 0.447f)
+                                put("blue", 0.259f)
+                            })
+                            put("textFormat", JSONObject().apply {
+                                put("bold", true)
+                                put("fontSize", 11)
+                                put("foregroundColor", JSONObject().apply {
+                                    put("red", 1.0f)
+                                    put("green", 1.0f)
+                                    put("blue", 1.0f)
+                                })
+                            })
+                            put("horizontalAlignment", "CENTER")
+                            put("verticalAlignment", "MIDDLE")
+                        })
+                    })
+                    put("fields", "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)")
+                })
+            })
+
+            // 3. Set column widths
+            val widths = listOf(
+                170, // Date & Time
+                140, // Battery
+                190, // Sound / Ringer
+                150, // DND Mode
+                130, // Brightness
+                120, // Wi-Fi
+                150, // Mobile Data
+                130, // Airplane Mode
+                110, // Bluetooth
+                110  // GPS Location
+            )
+            for (i in widths.indices) {
+                requests.put(JSONObject().apply {
+                    put("updateDimensionProperties", JSONObject().apply {
+                        put("range", JSONObject().apply {
+                            put("sheetId", sheetId)
+                            put("dimension", "COLUMNS")
+                            put("startIndex", i)
+                            put("endIndex", i + 1)
+                        })
+                        put("properties", JSONObject().apply {
+                            put("pixelSize", widths[i])
+                        })
+                        put("fields", "pixelSize")
+                    })
+                })
+            }
+
+            val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
+            val batchReq = Request.Builder()
+                .url(batchUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .post(JSONObject().put("requests", requests).toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            httpClient.newCall(batchReq).execute().close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error formatting Device_Status header", e)
+        }
+    }
+
+    /**
+     * Appends a device diagnostics snapshot row to the 'Device_Status' tab.
+     */
+    suspend fun appendDeviceReport(
+        context: Context,
+        diagnostics: DeviceDiagnostics
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        val spreadsheetResult = getOrCreateSpreadsheet(context)
+        if (spreadsheetResult.isFailure) {
+            return@withContext Result.failure(
+                spreadsheetResult.exceptionOrNull() ?: Exception("Unknown error getting spreadsheet")
+            )
+        }
+
+        var (spreadsheetId, _) = spreadsheetResult.getOrThrow()
+        var token = GoogleAuthManager.getAccessToken(context)
+            ?: return@withContext Result.failure(Exception("Failed to acquire Google OAuth token"))
+
+        var sheetIdResult = ensureDeviceStatusSheet(spreadsheetId, token)
+        if (sheetIdResult.isFailure) {
+            return@withContext Result.failure(
+                sheetIdResult.exceptionOrNull() ?: Exception("Failed to ensure Device_Status sheet")
+            )
+        }
+        var statusSheetId = sheetIdResult.getOrThrow()
+
+        val dateTimeFormatter = SimpleDateFormat("dd-MM-yyyy hh:mm:ss a", Locale.getDefault())
+        val dateTimeStr = dateTimeFormatter.format(Date(diagnostics.timestamp))
+
+        val rowValues = JSONArray().apply {
+            put(dateTimeStr)
+            put(diagnostics.battery)
+            put(diagnostics.ringer)
+            put(diagnostics.dnd)
+            put(diagnostics.brightness)
+            put(diagnostics.wifi)
+            put(diagnostics.mobileData)
+            put(diagnostics.airplaneMode)
+            put(diagnostics.bluetooth)
+            put(diagnostics.location)
+        }
+
+        val payload = JSONObject().apply {
+            put("range", "$STATUS_SHEET_TITLE!A:J")
+            put("majorDimension", "ROWS")
+            put("values", JSONArray().apply { put(rowValues) })
+        }
+
+        val appendUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId/values/${STATUS_SHEET_TITLE}!A:J:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+
+        var request = Request.Builder()
+            .url(appendUrl)
+            .addHeader("Authorization", "Bearer $token")
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        var response = httpClient.newCall(request).execute()
+
+        // If 401 Unauthorized, refresh token and retry
+        if (response.code == 401) {
+            response.close()
+            GoogleAuthManager.invalidateToken(context, token)
+            token = GoogleAuthManager.getAccessToken(context)
+                ?: return@withContext Result.failure(Exception("Re-auth failed during report append"))
+
+            request = Request.Builder()
+                .url(appendUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            response = httpClient.newCall(request).execute()
+        }
+
+        // Self-Healing: If 404 or 400
+        if (response.code == 404 || response.code == 400) {
+            response.close()
+            Log.w(TAG, "Spreadsheet or status tab missing. Retrying after self-healing...")
+            val helper = PreferencesHelper(context)
+            helper.spreadsheetId = null
+            helper.spreadsheetUrl = null
+
+            val recoveredResult = getOrCreateSpreadsheet(context)
+            if (recoveredResult.isSuccess) {
+                val (newSpreadsheetId, _) = recoveredResult.getOrThrow()
+                spreadsheetId = newSpreadsheetId
+
+                sheetIdResult = ensureDeviceStatusSheet(newSpreadsheetId, token)
+                statusSheetId = sheetIdResult.getOrDefault(0)
+
+                val retryUrl = "https://sheets.googleapis.com/v4/spreadsheets/$newSpreadsheetId/values/${STATUS_SHEET_TITLE}!A:J:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+                val retryReq = Request.Builder()
+                    .url(retryUrl)
+                    .addHeader("Authorization", "Bearer $token")
+                    .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .build()
+                response = httpClient.newCall(retryReq).execute()
+            } else {
+                return@withContext Result.failure(
+                    recoveredResult.exceptionOrNull() ?: Exception("Self-healing failed to re-create spreadsheet")
+                )
+            }
+        }
+
+        if (!response.isSuccessful) {
+            val errorBody = response.body?.string()
+            response.close()
+            return@withContext Result.failure(Exception("Failed to append device report: ${response.code} - $errorBody"))
+        }
+
+        val appendRespJson = JSONObject(response.body?.string() ?: "{}")
+        response.close()
+
+        // Apply center alignment to data row
+        val updatesObj = appendRespJson.optJSONObject("updates")
+        val updatedRange = updatesObj?.optString("updatedRange", "") ?: ""
+        applyStatusRowFormatting(spreadsheetId, token, updatedRange, statusSheetId)
+
+        PreferencesHelper(context).lastReportTimestamp = System.currentTimeMillis()
+        Log.d(TAG, "Device diagnostics report successfully appended to Google Sheet")
+        Result.success(true)
+    }
+
+    /**
+     * Centers data cells in the newly appended report row.
+     */
+    private fun applyStatusRowFormatting(
+        spreadsheetId: String,
+        token: String,
+        updatedRange: String,
+        sheetTabId: Int
+    ) {
+        if (updatedRange.isBlank()) return
+        try {
+            val match = Regex("""!A(\d+):J(\d+)""").find(updatedRange) ?: return
+            val startRow = match.groupValues[1].toInt() - 1
+            val endRow = match.groupValues[2].toInt()
+
+            val requests = JSONArray().apply {
+                put(JSONObject().apply {
+                    put("repeatCell", JSONObject().apply {
+                        put("range", JSONObject().apply {
+                            put("sheetId", sheetTabId)
+                            put("startRowIndex", startRow)
+                            put("endRowIndex", endRow)
+                            put("startColumnIndex", 0)
+                            put("endColumnIndex", 10)
+                        })
+                        put("cell", JSONObject().apply {
+                            put("userEnteredFormat", JSONObject().apply {
+                                put("horizontalAlignment", "CENTER")
+                                put("verticalAlignment", "MIDDLE")
+                            })
+                        })
+                        put("fields", "userEnteredFormat(horizontalAlignment,verticalAlignment)")
+                    })
+                })
+            }
+
+            val batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/$spreadsheetId:batchUpdate"
+            val batchReq = Request.Builder()
+                .url(batchUrl)
+                .addHeader("Authorization", "Bearer $token")
+                .post(JSONObject().put("requests", requests).toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+
+            httpClient.newCall(batchReq).execute().close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying status row formatting", e)
         }
     }
 }

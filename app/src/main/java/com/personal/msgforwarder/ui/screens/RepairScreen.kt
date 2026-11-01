@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,6 +29,8 @@ import com.personal.msgforwarder.data.local.MessageDbHelper
 import com.personal.msgforwarder.sync.SyncManager
 import com.personal.msgforwarder.ui.components.HamburgerMenuIcon
 import com.personal.msgforwarder.ui.theme.*
+import com.personal.msgforwarder.util.DeviceDiagnostics
+import com.personal.msgforwarder.util.DeviceReportHelper
 import kotlinx.coroutines.launch
 
 @Composable
@@ -41,12 +44,19 @@ fun RepairScreen(
 
     var isHealing by remember { mutableStateOf(false) }
     var isSyncing by remember { mutableStateOf(false) }
+    var isGeneratingReport by remember { mutableStateOf(false) }
     var pendingCount by remember { mutableStateOf(dbHelper.getPendingCount()) }
+    var lastReportTime by remember { mutableStateOf(prefs.lastReportTimestamp) }
+    var liveDiagnostics by remember { mutableStateOf<DeviceDiagnostics?>(null) }
 
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
     val isIgnoringBatteryOptimizations = powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
 
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(Unit) {
+        liveDiagnostics = DeviceReportHelper.collectDiagnostics(context)
+    }
 
     Column(
         modifier = Modifier
@@ -93,7 +103,174 @@ fun RepairScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Card 1: Google Sheet Self-Healing
+        // Card 1: Remote Device Status Report ("REPORT" Command)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = SurfaceDark),
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(AccentEmerald)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "REMOTE DIAGNOSTICS",
+                            fontWeight = FontWeight.SemiBold,
+                            color = AccentEmerald,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp
+                        )
+                    }
+
+                    Surface(
+                        color = SurfaceElevated,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, BorderSubtle)
+                    ) {
+                        Text(
+                            text = "SMS: REPORT",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentEmerald,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Remote Status Report",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Send an SMS with text 'REPORT' to this phone from anywhere. The app immediately collects hardware status (battery, DND, volume, brightness, connectivity) and appends it to the 'Device_Status' tab in SUPERAPP_SHEET.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+
+                // Live Metrics Snapshot Container
+                if (liveDiagnostics != null) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = SurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, BorderSubtle)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = "CURRENT PHONE SNAPSHOT",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextMuted,
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val diag = liveDiagnostics!!
+                            StatusRow(label = "Battery", value = diag.battery)
+                            StatusRow(label = "Sound / Ringer", value = diag.ringer)
+                            StatusRow(
+                                label = "DND Mode",
+                                value = diag.dnd,
+                                highlight = diag.dnd.startsWith("ON")
+                            )
+                            StatusRow(label = "Brightness", value = diag.brightness)
+                            StatusRow(label = "Wi-Fi", value = diag.wifi)
+                            StatusRow(label = "Mobile Data", value = diag.mobileData)
+                            StatusRow(label = "Airplane Mode", value = diag.airplaneMode)
+                            StatusRow(label = "Bluetooth", value = diag.bluetooth)
+                            StatusRow(label = "GPS Location", value = diag.location)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Last Cloud Report",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                    Text(
+                        text = formatRelativeTime(lastReportTime),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (lastReportTime > 0L) AccentEmerald else TextMuted
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        if (!prefs.isSignedIn) {
+                            Toast.makeText(context, "Sign in first from SMS Backup", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        scope.launch {
+                            isGeneratingReport = true
+                            val diag = DeviceReportHelper.collectDiagnostics(context)
+                            liveDiagnostics = diag
+                            val result = GoogleSheetsManager.appendDeviceReport(context, diag)
+                            isGeneratingReport = false
+                            if (result.isSuccess) {
+                                lastReportTime = prefs.lastReportTimestamp
+                                Toast.makeText(context, "Report uploaded to 'Device_Status' tab", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Upload failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    enabled = !isGeneratingReport,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    if (isGeneratingReport) {
+                        CircularProgressIndicator(
+                            color = DeepBlack,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "Generate & Upload Report Now",
+                            fontWeight = FontWeight.SemiBold,
+                            color = DeepBlack,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Card 2: Google Sheet Self-Healing
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -110,7 +287,7 @@ fun RepairScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "GOOGLE SHEET DIAGNOSTICS",
+                        text = "GOOGLE SHEET INTEGRITY",
                         fontWeight = FontWeight.SemiBold,
                         color = AccentEmerald,
                         fontSize = 11.sp,
@@ -120,14 +297,14 @@ fun RepairScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "SUPERAPP_SHEET Integrity",
+                    text = "SUPERAPP_SHEET Self-Healing",
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Verifies the cloud spreadsheet existence, auto-repairs missing headers, and restores cell formatting.",
+                    text = "Verifies the cloud spreadsheet existence, auto-repairs missing tabs ('Messages' and 'Device_Status'), and restores formatting.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     fontSize = 12.sp,
@@ -157,20 +334,21 @@ fun RepairScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(46.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald),
-                    shape = RoundedCornerShape(12.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevated),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, BorderSubtle)
                 ) {
                     if (isHealing) {
                         CircularProgressIndicator(
-                            color = DeepBlack,
+                            color = TextPrimary,
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(18.dp)
                         )
                     } else {
                         Text(
-                            text = "Verify & Repair Sheet",
+                            text = "Verify & Repair Spreadsheet",
                             fontWeight = FontWeight.SemiBold,
-                            color = DeepBlack,
+                            color = TextPrimary,
                             fontSize = 13.sp
                         )
                     }
@@ -180,7 +358,7 @@ fun RepairScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 2: Local SQLite Queue Flush
+        // Card 3: Local SQLite Queue Flush
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -279,7 +457,7 @@ fun RepairScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Card 3: Background & Battery Health
+        // Card 4: Background & Battery Health
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
@@ -336,5 +514,48 @@ fun RepairScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatusRow(
+    label: String,
+    value: String,
+    highlight: Boolean = false
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = TextSecondary
+        )
+        Text(
+            text = value,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (highlight) AccentAmber else TextPrimary
+        )
+    }
+}
+
+private fun formatRelativeTime(timestamp: Long): String {
+    if (timestamp <= 0L) return "Never"
+    val diff = System.currentTimeMillis() - timestamp
+    val seconds = diff / 1000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+    val days = hours / 24
+
+    return when {
+        seconds < 60 -> "Just now"
+        minutes < 60 -> "$minutes min ago"
+        hours < 24 -> "$hours hr ago"
+        else -> "$days day(s) ago"
     }
 }

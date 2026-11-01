@@ -18,6 +18,7 @@ class PreferencesHelper(context: Context) {
         private const val KEY_SPREADSHEET_ID = "spreadsheet_id"
         private const val KEY_SPREADSHEET_URL = "spreadsheet_url"
         private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
+        private const val KEY_LAST_REPORT_TIMESTAMP = "last_report_timestamp"
         private const val KEY_TOTAL_SYNCED_COUNT = "total_synced_count"
         private const val KEY_IS_ENCRYPTION_ENABLED = "is_encryption_enabled"
         private const val KEY_ENCRYPTION_KEY = "encryption_key"
@@ -63,6 +64,10 @@ class PreferencesHelper(context: Context) {
     var lastSyncTimestamp: Long
         get() = prefs.getLong(KEY_LAST_SYNC_TIMESTAMP, 0L)
         set(value) = prefs.edit().putLong(KEY_LAST_SYNC_TIMESTAMP, value).apply()
+
+    var lastReportTimestamp: Long
+        get() = prefs.getLong(KEY_LAST_REPORT_TIMESTAMP, 0L)
+        set(value) = prefs.edit().putLong(KEY_LAST_REPORT_TIMESTAMP, value).apply()
 
     val isSignedIn: Boolean
         get() = !googleAccountEmail.isNullOrBlank()
