@@ -2,7 +2,7 @@ name: Build & Release APK
 
 on:
   push:
-    branches: [ main, feat/google-sheets-backup ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
