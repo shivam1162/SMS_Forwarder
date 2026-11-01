@@ -70,6 +70,59 @@ fun HamburgerMenuIcon(
 }
 
 /**
+ * Reusable menu item for SuperApp components.
+ */
+@Composable
+private fun DrawerComponentItem(
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (isSelected) AccentEmerald.copy(alpha = 0.12f) else SurfaceElevated,
+        border = BorderStroke(
+            1.dp,
+            if (isSelected) AccentEmerald.copy(alpha = 0.45f) else BorderSubtle
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) AccentEmerald else TextMuted)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isSelected) TextPrimary else TextSecondary,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isSelected) AccentEmerald else TextMuted,
+                    fontSize = 11.sp
+                )
+            }
+        }
+    }
+}
+
+/**
  * Side slide-out navigation drawer sheet hosting SuperApp components.
  */
 @Composable
@@ -117,48 +170,32 @@ fun AppDrawerContent(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Component 1: SMS Backup
-            val isSmsSelected = currentScreen == AppScreen.SMS_BACKUP
-            Surface(
-                onClick = { onSelectScreen(AppScreen.SMS_BACKUP) },
-                shape = RoundedCornerShape(14.dp),
-                color = if (isSmsSelected) AccentEmerald.copy(alpha = 0.12f) else SurfaceElevated,
-                border = BorderStroke(
-                    1.dp,
-                    if (isSmsSelected) AccentEmerald.copy(alpha = 0.45f) else BorderSubtle
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (isSmsSelected) AccentEmerald else TextMuted)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "SMS Backup",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isSmsSelected) TextPrimary else TextSecondary,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Google Drive Sync",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isSmsSelected) AccentEmerald else TextMuted,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-            }
+            DrawerComponentItem(
+                title = "SMS Backup",
+                subtitle = "Google Drive Sync",
+                isSelected = currentScreen == AppScreen.SMS_BACKUP,
+                onClick = { onSelectScreen(AppScreen.SMS_BACKUP) }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Component 2: Repair
+            DrawerComponentItem(
+                title = "Repair",
+                subtitle = "Self-Healing & Diagnostics",
+                isSelected = currentScreen == AppScreen.REPAIR,
+                onClick = { onSelectScreen(AppScreen.REPAIR) }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Component 3: Setting
+            DrawerComponentItem(
+                title = "Setting",
+                subtitle = "Preferences & System",
+                isSelected = currentScreen == AppScreen.SETTING,
+                onClick = { onSelectScreen(AppScreen.SETTING) }
+            )
 
             Spacer(modifier = Modifier.weight(1f))
 
