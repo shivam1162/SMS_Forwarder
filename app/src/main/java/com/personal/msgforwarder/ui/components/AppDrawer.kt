@@ -2,6 +2,7 @@ package com.personal.msgforwarder.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -14,10 +15,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.personal.msgforwarder.R
 import com.personal.msgforwarder.data.PreferencesHelper
 import com.personal.msgforwarder.ui.AppScreen
 import com.personal.msgforwarder.ui.theme.AccentEmerald
@@ -146,15 +149,27 @@ fun AppDrawerContent(
                 .padding(horizontal = 20.dp)
                 .padding(top = 22.dp, bottom = 24.dp)
         ) {
-            // Header: Title
-            Text(
-                text = "SuperApp",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimary,
-                fontSize = 22.sp,
-                letterSpacing = 0.5.sp
-            )
+            // Header: Logo & Title
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = "SuperApp Logo",
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "SuperApp",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary,
+                    fontSize = 22.sp,
+                    letterSpacing = 0.5.sp
+                )
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
